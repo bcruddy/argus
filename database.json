@@ -1,0 +1,14 @@
+{
+	"dev": {
+		"driver": "pg",
+		"connectionString": { "ENV": "DATABASE_URL" },
+		"ssl": { "rejectUnauthorized": false }
+	},
+	"production": {
+		"driver": "pg",
+		"connectionString": { "ENV": "DATABASE_URL" },
+		"ssl": { "rejectUnauthorized": false }
+	},
+	"sql-file": true,
+	"migrations-dir": "./migrations"
+}
