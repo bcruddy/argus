@@ -18,6 +18,7 @@ export const tradeSchema = z.object({
 	isWhale: z.boolean(),
 	detectionRule: z.string().nullable(),
 	timeToExpiryHours: z.number().nullable(),
+	title: z.string().nullable(),
 	createdAt: z.coerce.date(),
 });
 

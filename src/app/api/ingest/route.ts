@@ -41,7 +41,8 @@ export async function POST() {
 					usdc_value,
 					trade_timestamp,
 					is_whale,
-					detection_rule
+					detection_rule,
+					title
 				) VALUES (
 					${trade.transactionHash},
 					${trade.conditionId},
@@ -54,7 +55,8 @@ export async function POST() {
 					${usdcValue},
 					${tradeTimestamp},
 					true,
-					'threshold_250k'
+					'threshold_250k',
+					${trade.title || null}
 				)
 			`;
 		}
