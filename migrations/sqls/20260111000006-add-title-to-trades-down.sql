@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_trades_title;
+ALTER TABLE trades DROP COLUMN IF EXISTS title;
