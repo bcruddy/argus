@@ -1,14 +1,57 @@
 'use client';
 
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 export type SortField = 'time' | 'amount';
 export type SortOrder = 'asc' | 'desc';
 
+const THRESHOLD_STORAGE_KEY = 'hermes-min-amount';
+const DEFAULT_THRESHOLD = 250000;
+
 export interface TradesFilters {
 	sort: SortField;
 	order: SortOrder;
+	category: string | null;
+	event: string | null;
+	minAmount: number;
+}
+
+function getStoredThreshold(): number {
+	if (typeof window === 'undefined') return DEFAULT_THRESHOLD;
+	const stored = localStorage.getItem(THRESHOLD_STORAGE_KEY);
+	if (!stored) return DEFAULT_THRESHOLD;
+	const parsed = parseInt(stored, 10);
+	return isNaN(parsed) ? DEFAULT_THRESHOLD : parsed;
+}
+
+function setStoredThreshold(value: number): void {
+	if (typeof window === 'undefined') return;
+	localStorage.setItem(THRESHOLD_STORAGE_KEY, String(value));
+}
+
+// Custom hook for localStorage with useSyncExternalStore
+function useLocalStorageThreshold(): [number, (value: number) => void, boolean] {
+	const subscribe = useCallback((callback: () => void) => {
+		window.addEventListener('storage', callback);
+		return () => window.removeEventListener('storage', callback);
+	}, []);
+
+	const getSnapshot = useCallback(() => getStoredThreshold(), []);
+	const getServerSnapshot = useCallback(() => DEFAULT_THRESHOLD, []);
+
+	const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+	const setValue = useCallback((newValue: number) => {
+		setStoredThreshold(newValue);
+		// Trigger a storage event to update subscribers
+		window.dispatchEvent(new StorageEvent('storage', { key: THRESHOLD_STORAGE_KEY }));
+	}, []);
+
+	// isHydrated is true when we're on the client
+	const isHydrated = typeof window !== 'undefined';
+
+	return [value, setValue, isHydrated];
 }
 
 export function useTradesFilters() {
@@ -16,16 +59,21 @@ export function useTradesFilters() {
 	const router = useRouter();
 	const pathname = usePathname();
 
+	const [minAmount, setMinAmount, isHydrated] = useLocalStorageThreshold();
+
 	const filters: TradesFilters = useMemo(
 		() => ({
 			sort: (searchParams.get('sort') as SortField) || 'time',
 			order: (searchParams.get('order') as SortOrder) || 'desc',
+			category: searchParams.get('category'),
+			event: searchParams.get('event'),
+			minAmount,
 		}),
-		[searchParams],
+		[searchParams, minAmount],
 	);
 
 	const setFilters = useCallback(
-		(updates: Partial<TradesFilters>) => {
+		(updates: Partial<Omit<TradesFilters, 'minAmount'>>) => {
 			const params = new URLSearchParams(searchParams.toString());
 
 			if (updates.sort !== undefined) {
@@ -36,6 +84,16 @@ export function useTradesFilters() {
 			if (updates.order !== undefined) {
 				if (updates.order === 'desc') params.delete('order');
 				else params.set('order', updates.order);
+			}
+
+			if (updates.category !== undefined) {
+				if (updates.category === null || updates.category === '') params.delete('category');
+				else params.set('category', updates.category);
+			}
+
+			if (updates.event !== undefined) {
+				if (updates.event === null || updates.event === '') params.delete('event');
+				else params.set('event', updates.event);
 			}
 
 			const query = params.toString();
@@ -55,5 +113,5 @@ export function useTradesFilters() {
 		[filters, setFilters],
 	);
 
-	return { filters, setFilters, toggleSort };
+	return { filters, setFilters, setMinAmount, toggleSort, isHydrated };
 }

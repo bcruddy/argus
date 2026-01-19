@@ -1,13 +1,17 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Slider } from '@/components/ui/slider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { useTradesFilters } from '@/hooks/useTradesFilters';
-import { useTrades } from '@/hooks/useTrades';
-import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { useTrades, Trade } from '@/hooks/useTrades';
+import { useFilterOptions } from '@/hooks/useFilterOptions';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink } from 'lucide-react';
 
 function formatUsd(value: number): string {
 	return new Intl.NumberFormat('en-US', {
@@ -43,6 +47,11 @@ function formatTimestamp(timestamp: string): string {
 	return new Date(timestamp).toLocaleString();
 }
 
+function formatTimestampShort(timestamp: string): string {
+	const date = new Date(timestamp);
+	return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
 function SortIcon({ field, currentSort, currentOrder }: { field: string; currentSort: string; currentOrder: string }) {
 	if (currentSort !== field) {
 		return <ChevronsUpDown className="ml-1 inline h-4 w-4 text-muted-foreground" />;
@@ -54,11 +63,77 @@ function SortIcon({ field, currentSort, currentOrder }: { field: string; current
 	);
 }
 
+function useIsMobile() {
+	const [isMobile, setIsMobile] = useState(false);
+
+	useEffect(() => {
+		const checkMobile = () => setIsMobile(window.innerWidth < 768);
+		checkMobile();
+		window.addEventListener('resize', checkMobile);
+		return () => window.removeEventListener('resize', checkMobile);
+	}, []);
+
+	return isMobile;
+}
+
+function TradeCard({ trade }: { trade: Trade }) {
+	return (
+		<Card className="mb-3">
+			<CardContent className="pt-4 pb-3 px-4">
+				<div className="flex justify-between items-start mb-2">
+					<div className="flex-1 min-w-0 mr-2">
+						<p className="text-sm font-medium truncate" title={trade.title || trade.condition_id}>
+							{trade.title || <span className="text-muted-foreground italic">{trade.condition_id.slice(0, 16)}...</span>}
+						</p>
+						<p className="text-xs text-muted-foreground">{formatTimestampShort(trade.trade_timestamp)}</p>
+					</div>
+					<Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'} className="shrink-0">
+						{trade.side}
+					</Badge>
+				</div>
+				<div className="grid grid-cols-2 gap-2 text-sm">
+					<div>
+						<span className="text-muted-foreground">Amount:</span>
+						<span className="font-mono font-medium ml-1">{formatUsd(trade.usdc_value)}</span>
+					</div>
+					<div>
+						<span className="text-muted-foreground">Outcome:</span>
+						<span className="ml-1">{trade.outcome || '-'}</span>
+					</div>
+					<div>
+						<span className="text-muted-foreground">Size:</span>
+						<span className="font-mono ml-1">{formatNumber(trade.size)}</span>
+					</div>
+					<div>
+						<span className="text-muted-foreground">Price:</span>
+						<span className="font-mono ml-1">{formatPrice(trade.price)}</span>
+					</div>
+				</div>
+				<div className="mt-2 flex justify-between items-center text-xs">
+					<span className="font-mono text-muted-foreground">{formatWallet(trade.proxy_wallet)}</span>
+					<a
+						href={`https://polygonscan.com/tx/${trade.transaction_hash}`}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-primary hover:underline flex items-center gap-1"
+					>
+						View Tx <ExternalLink className="h-3 w-3" />
+					</a>
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
 function TradesTableContent() {
-	const { filters, toggleSort } = useTradesFilters();
-	const { data, isLoading, error, refetch } = useTrades(filters);
+	const isMobile = useIsMobile();
+	const { filters, setFilters, setMinAmount, toggleSort, isHydrated } = useTradesFilters();
+	const { data: filterOptions } = useFilterOptions();
+	const limit = isMobile ? 10 : 50;
+	const { data, isLoading, error, refetch } = useTrades(filters, limit);
 	const [refreshing, setRefreshing] = useState(false);
 	const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+	const [eventSearch, setEventSearch] = useState('');
 
 	const handleRefresh = async () => {
 		setRefreshing(true);
@@ -76,33 +151,120 @@ function TradesTableContent() {
 
 	const trades = data?.trades || [];
 
+	const handleMinAmountChange = (value: number[]) => {
+		setMinAmount(value[0]);
+	};
+
+	const handleEventSearch = (e: React.FormEvent) => {
+		e.preventDefault();
+		setFilters({ event: eventSearch || null });
+	};
+
+	const clearEventSearch = () => {
+		setEventSearch('');
+		setFilters({ event: null });
+	};
+
 	return (
-		<div className="container mx-auto py-8 px-4">
+		<div className="container mx-auto py-4 md:py-8 px-3 md:px-4">
 			<Card>
-				<CardHeader>
-					<div className="flex items-center justify-between">
+				<CardHeader className="pb-4">
+					<div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
 						<div>
-							<CardTitle>Whale Trades</CardTitle>
-							<CardDescription>
-								Trades over $250k from Polymarket
+							<CardTitle className="text-lg md:text-xl">Whale Trades</CardTitle>
+							<CardDescription className="text-xs md:text-sm">
+								Large trades from Polymarket
 								{lastRefresh && <span className="ml-2">Last refresh: {lastRefresh.toLocaleTimeString()}</span>}
 							</CardDescription>
 						</div>
-						<Button onClick={handleRefresh} disabled={refreshing}>
+						<Button onClick={handleRefresh} disabled={refreshing} size="sm">
 							{refreshing ? 'Refreshing...' : 'Refresh'}
 						</Button>
+					</div>
+
+					{/* Filters */}
+					<div className="mt-4 space-y-4">
+						{/* Category and Event filters */}
+						<div className="flex flex-col sm:flex-row gap-3">
+							<div className="flex-1">
+								<label className="text-xs text-muted-foreground mb-1 block">Category</label>
+								<Select
+									value={filters.category || ''}
+									onValueChange={(value) => setFilters({ category: value === 'all' ? null : value })}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All Categories" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Categories</SelectItem>
+										{filterOptions?.categories.map((cat) => (
+											<SelectItem key={cat} value={cat}>
+												{cat}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="flex-1">
+								<label className="text-xs text-muted-foreground mb-1 block">Event Search</label>
+								<form onSubmit={handleEventSearch} className="flex gap-2">
+									<Input
+										type="text"
+										placeholder="Search events..."
+										value={eventSearch}
+										onChange={(e) => setEventSearch(e.target.value)}
+										className="flex-1"
+									/>
+									{filters.event && (
+										<Button type="button" variant="ghost" size="sm" onClick={clearEventSearch}>
+											Clear
+										</Button>
+									)}
+								</form>
+							</div>
+						</div>
+
+						{/* Min Amount Slider */}
+						<div>
+							<div className="flex justify-between items-center mb-2">
+								<label className="text-xs text-muted-foreground">Minimum Amount</label>
+								<span className="text-sm font-mono font-medium">
+									{isHydrated ? formatUsd(filters.minAmount) : formatUsd(250000)}
+								</span>
+							</div>
+							<Slider
+								value={[filters.minAmount]}
+								onValueChange={handleMinAmountChange}
+								min={10000}
+								max={1000000}
+								step={10000}
+								className="w-full"
+							/>
+							<div className="flex justify-between text-xs text-muted-foreground mt-1">
+								<span>$10k</span>
+								<span>$1M</span>
+							</div>
+						</div>
 					</div>
 				</CardHeader>
 				<CardContent>
 					{error && <div className="text-destructive mb-4 text-sm">Error: {error.message}</div>}
 
 					{isLoading ? (
-						<div className="text-muted-foreground py-8 text-center">Loading trades...</div>
+						<div className="text-muted-foreground py-8 text-center text-sm">Loading trades...</div>
 					) : trades.length === 0 ? (
-						<div className="text-muted-foreground py-8 text-center">
+						<div className="text-muted-foreground py-8 text-center text-sm">
 							No whale trades found. Click Refresh to fetch from Polymarket.
 						</div>
+					) : isMobile ? (
+						// Mobile: Card layout
+						<div>
+							{trades.map((trade) => (
+								<TradeCard key={trade.id} trade={trade} />
+							))}
+						</div>
 					) : (
+						// Desktop: Table layout
 						<div className="overflow-x-auto">
 							<Table>
 								<TableHeader>
@@ -162,6 +324,13 @@ function TradesTableContent() {
 									))}
 								</TableBody>
 							</Table>
+						</div>
+					)}
+
+					{/* Results count */}
+					{trades.length > 0 && (
+						<div className="mt-4 text-xs text-muted-foreground text-center">
+							Showing {trades.length} trades {isMobile && '(limited on mobile)'}
 						</div>
 					)}
 				</CardContent>
