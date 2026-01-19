@@ -10,8 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useTradesFilters } from '@/hooks/useTradesFilters';
 import { useTrades, Trade } from '@/hooks/useTrades';
+import { useGroupedTrades } from '@/hooks/useGroupedTrades';
 import { useFilterOptions } from '@/hooks/useFilterOptions';
-import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink } from 'lucide-react';
+import { GroupedTradesView } from '@/components/GroupedTradesView';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users } from 'lucide-react';
+
+type ViewMode = 'individual' | 'grouped';
 
 function formatUsd(value: number): string {
 	return new Intl.NumberFormat('en-US', {
@@ -130,7 +134,15 @@ function TradesTableContent() {
 	const { filters, setFilters, setMinAmount, toggleSort, isHydrated } = useTradesFilters();
 	const { data: filterOptions } = useFilterOptions();
 	const limit = isMobile ? 10 : 50;
+	const [viewMode, setViewMode] = useState<ViewMode>('individual');
+	const [timeWindowHours, setTimeWindowHours] = useState(24);
 	const { data, isLoading, error, refetch } = useTrades(filters, limit);
+	const {
+		data: groupedData,
+		isLoading: groupedLoading,
+		error: groupedError,
+		refetch: refetchGrouped,
+	} = useGroupedTrades(filters, timeWindowHours, limit);
 	const [refreshing, setRefreshing] = useState(false);
 	const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 	const [eventSearch, setEventSearch] = useState('');
@@ -141,13 +153,16 @@ function TradesTableContent() {
 			const res = await fetch('/api/ingest', { method: 'POST' });
 			if (!res.ok) throw new Error('Failed to ingest trades');
 			setLastRefresh(new Date());
-			await refetch();
+			await Promise.all([refetch(), refetchGrouped()]);
 		} catch (err) {
 			console.error('Refresh error:', err);
 		} finally {
 			setRefreshing(false);
 		}
 	};
+
+	const currentError = viewMode === 'individual' ? error : groupedError;
+	const currentLoading = viewMode === 'individual' ? isLoading : groupedLoading;
 
 	const trades = data?.trades || [];
 
@@ -177,9 +192,32 @@ function TradesTableContent() {
 								{lastRefresh && <span className="ml-2">Last refresh: {lastRefresh.toLocaleTimeString()}</span>}
 							</CardDescription>
 						</div>
-						<Button onClick={handleRefresh} disabled={refreshing} size="sm">
-							{refreshing ? 'Refreshing...' : 'Refresh'}
-						</Button>
+						<div className="flex items-center gap-2">
+							{/* View Mode Toggle */}
+							<div className="flex rounded-lg border p-1">
+								<Button
+									variant={viewMode === 'individual' ? 'default' : 'ghost'}
+									size="sm"
+									onClick={() => setViewMode('individual')}
+									className="h-7 px-2 text-xs"
+								>
+									<List className="h-3 w-3 mr-1" />
+									Individual
+								</Button>
+								<Button
+									variant={viewMode === 'grouped' ? 'default' : 'ghost'}
+									size="sm"
+									onClick={() => setViewMode('grouped')}
+									className="h-7 px-2 text-xs"
+								>
+									<Users className="h-3 w-3 mr-1" />
+									By Wallet
+								</Button>
+							</div>
+							<Button onClick={handleRefresh} disabled={refreshing} size="sm">
+								{refreshing ? 'Refreshing...' : 'Refresh'}
+							</Button>
+						</div>
 					</div>
 
 					{/* Filters */}
@@ -245,13 +283,46 @@ function TradesTableContent() {
 								<span>$1M</span>
 							</div>
 						</div>
+
+						{/* Time Window (only for grouped view) */}
+						{viewMode === 'grouped' && (
+							<div>
+								<label className="text-xs text-muted-foreground mb-1 block">Time Window</label>
+								<Select
+									value={String(timeWindowHours)}
+									onValueChange={(value) => setTimeWindowHours(parseInt(value, 10))}
+								>
+									<SelectTrigger className="w-full sm:w-[200px]">
+										<SelectValue placeholder="Select time window" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="6">Last 6 hours</SelectItem>
+										<SelectItem value="12">Last 12 hours</SelectItem>
+										<SelectItem value="24">Last 24 hours</SelectItem>
+										<SelectItem value="48">Last 48 hours</SelectItem>
+										<SelectItem value="72">Last 72 hours</SelectItem>
+										<SelectItem value="168">Last 7 days</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 					</div>
 				</CardHeader>
 				<CardContent>
-					{error && <div className="text-destructive mb-4 text-sm">Error: {error.message}</div>}
+					{currentError && <div className="text-destructive mb-4 text-sm">Error: {currentError.message}</div>}
 
-					{isLoading ? (
-						<div className="text-muted-foreground py-8 text-center text-sm">Loading trades...</div>
+					{currentLoading ? (
+						<div className="text-muted-foreground py-8 text-center text-sm">
+							Loading {viewMode === 'grouped' ? 'grouped ' : ''}trades...
+						</div>
+					) : viewMode === 'grouped' ? (
+						// Grouped view
+						<GroupedTradesView
+							groups={groupedData?.groups || []}
+							isMobile={isMobile}
+							timeWindowHours={timeWindowHours}
+							totalTrades={groupedData?.meta.totalTrades || 0}
+						/>
 					) : trades.length === 0 ? (
 						<div className="text-muted-foreground py-8 text-center text-sm">
 							No whale trades found. Click Refresh to fetch from Polymarket.
@@ -327,8 +398,8 @@ function TradesTableContent() {
 						</div>
 					)}
 
-					{/* Results count */}
-					{trades.length > 0 && (
+					{/* Results count (only for individual view) */}
+					{viewMode === 'individual' && trades.length > 0 && (
 						<div className="mt-4 text-xs text-muted-foreground text-center">
 							Showing {trades.length} trades {isMobile && '(limited on mobile)'}
 						</div>
