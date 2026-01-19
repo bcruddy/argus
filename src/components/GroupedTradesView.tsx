@@ -6,7 +6,85 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { TradeGroup, TradeGroupType } from '@/schemas/api';
-import { ChevronDown, ChevronRight, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Layers, ArrowUp, ArrowDown } from 'lucide-react';
+
+// Types for outcome aggregation
+interface OutcomePosition {
+	outcome: string;
+	netShares: number;
+	buyValue: number;
+	sellValue: number;
+	buyCount: number;
+	sellCount: number;
+}
+
+interface EventSummary {
+	conditionId: string;
+	title: string | null;
+	category: string | null;
+	positions: OutcomePosition[];
+}
+
+// Aggregate trades by event and outcome
+function aggregateByEventAndOutcome(group: TradeGroup): EventSummary[] {
+	const eventMap = new Map<string, Map<string, OutcomePosition>>();
+	const eventMeta = new Map<string, { title: string | null; category: string | null }>();
+
+	// Get event metadata from the events array
+	for (const event of group.events) {
+		eventMeta.set(event.conditionId, { title: event.title, category: event.category });
+	}
+
+	// Aggregate trades
+	for (const trade of group.trades) {
+		const outcome = trade.outcome || 'Unknown';
+
+		if (!eventMap.has(trade.conditionId)) {
+			eventMap.set(trade.conditionId, new Map());
+		}
+
+		const outcomeMap = eventMap.get(trade.conditionId)!;
+		if (!outcomeMap.has(outcome)) {
+			outcomeMap.set(outcome, {
+				outcome,
+				netShares: 0,
+				buyValue: 0,
+				sellValue: 0,
+				buyCount: 0,
+				sellCount: 0,
+			});
+		}
+
+		const pos = outcomeMap.get(outcome)!;
+		if (trade.side === 'BUY') {
+			pos.netShares += trade.size;
+			pos.buyValue += trade.usdcValue;
+			pos.buyCount++;
+		} else {
+			pos.netShares -= trade.size;
+			pos.sellValue += trade.usdcValue;
+			pos.sellCount++;
+		}
+	}
+
+	// Convert to array format
+	const result: EventSummary[] = [];
+	for (const [conditionId, outcomeMap] of eventMap) {
+		const meta = eventMeta.get(conditionId) || { title: null, category: null };
+		const positions = Array.from(outcomeMap.values())
+			// Sort by absolute value of position (largest first)
+			.sort((a, b) => Math.abs(b.netShares) - Math.abs(a.netShares));
+
+		result.push({
+			conditionId,
+			title: meta.title,
+			category: meta.category,
+			positions,
+		});
+	}
+
+	return result;
+}
 
 function formatUsd(value: number): string {
 	return new Intl.NumberFormat('en-US', {
@@ -80,9 +158,29 @@ function getGroupTypeConfig(groupType: TradeGroupType): {
 	}
 }
 
+// Compact position display for each outcome
+function PositionBadge({ position }: { position: OutcomePosition }) {
+	const isLong = position.netShares > 0;
+	const netValue = position.buyValue - position.sellValue;
+
+	return (
+		<div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
+			<span className={`font-medium text-sm ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+				{position.outcome}
+			</span>
+			<span className="text-xs text-muted-foreground">·</span>
+			<span className={`flex items-center gap-0.5 text-xs font-mono ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+				{isLong ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+				{formatUsd(Math.abs(netValue))}
+			</span>
+		</div>
+	);
+}
+
 function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: boolean }) {
 	const [expanded, setExpanded] = useState(false);
 	const groupConfig = getGroupTypeConfig(group.groupType);
+	const eventSummaries = aggregateByEventAndOutcome(group);
 
 	return (
 		<Card className="mb-3">
@@ -106,8 +204,8 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 					</Button>
 				</div>
 
-				{/* Summary Stats */}
-				<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+				{/* Summary Stats - simplified */}
+				<div className="grid grid-cols-3 gap-3 mb-3">
 					<div>
 						<p className="text-xs text-muted-foreground">Total Value</p>
 						<p className="font-mono font-semibold text-sm">{formatUsd(group.summary.totalValue)}</p>
@@ -119,37 +217,38 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 						</p>
 					</div>
 					<div>
-						<p className="text-xs text-muted-foreground">Net Shares</p>
-						<p className={`font-mono text-sm ${group.summary.netShares >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-							{group.summary.netShares >= 0 ? '+' : ''}{formatNumber(group.summary.netShares)}
-						</p>
-					</div>
-					<div>
 						<p className="text-xs text-muted-foreground">Avg Price</p>
 						<p className="font-mono text-sm">{formatPrice(group.summary.avgPrice)}</p>
 					</div>
 				</div>
 
-				{/* Events */}
+				{/* Events with Positions */}
 				<div className="mb-3">
-					<p className="text-xs text-muted-foreground mb-1">Events ({group.events.length})</p>
-					<div className="space-y-1">
-						{group.events.slice(0, expanded ? undefined : 2).map((event) => (
-							<div key={event.conditionId} className="flex items-center gap-2">
-								{event.category && (
-									<Badge variant="outline" className="text-xs shrink-0">
-										{event.category}
-									</Badge>
-								)}
-								<span className="text-sm truncate" title={event.title || event.conditionId}>
-									{event.title || (
-										<span className="text-muted-foreground italic">{event.conditionId.slice(0, 16)}...</span>
+					<p className="text-xs text-muted-foreground mb-2">Positions</p>
+					<div className="space-y-2">
+						{eventSummaries.slice(0, expanded ? undefined : 2).map((event) => (
+							<div key={event.conditionId} className="bg-muted/30 rounded-md p-2">
+								<div className="flex items-start gap-2 mb-1.5">
+									{event.category && (
+										<Badge variant="outline" className="text-xs shrink-0">
+											{event.category}
+										</Badge>
 									)}
-								</span>
+									<span className="text-sm leading-tight" title={event.title || event.conditionId}>
+										{event.title || (
+											<span className="text-muted-foreground italic">{event.conditionId.slice(0, 16)}...</span>
+										)}
+									</span>
+								</div>
+								<div className="flex flex-wrap gap-1.5">
+									{event.positions.map((pos) => (
+										<PositionBadge key={pos.outcome} position={pos} />
+									))}
+								</div>
 							</div>
 						))}
-						{!expanded && group.events.length > 2 && (
-							<p className="text-xs text-muted-foreground">+{group.events.length - 2} more events</p>
+						{!expanded && eventSummaries.length > 2 && (
+							<p className="text-xs text-muted-foreground">+{eventSummaries.length - 2} more events</p>
 						)}
 					</div>
 				</div>
@@ -174,9 +273,16 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 											<span className="truncate flex-1 mr-2" title={trade.title || undefined}>
 												{trade.title || trade.conditionId.slice(0, 16) + '...'}
 											</span>
-											<Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'} className="text-xs">
-												{trade.side}
-											</Badge>
+											<div className="flex items-center gap-1 shrink-0">
+												<Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'} className="text-xs">
+													{trade.side}
+												</Badge>
+												{trade.outcome && (
+													<Badge variant="outline" className="text-xs">
+														{trade.outcome}
+													</Badge>
+												)}
+											</div>
 										</div>
 										<div className="flex justify-between text-xs">
 											<span className="text-muted-foreground">{formatTimestampShort(trade.tradeTimestamp)}</span>
@@ -192,6 +298,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 										<TableHead className="text-xs">Time</TableHead>
 										<TableHead className="text-xs">Event</TableHead>
 										<TableHead className="text-xs">Side</TableHead>
+										<TableHead className="text-xs">Outcome</TableHead>
 										<TableHead className="text-xs text-right">Size</TableHead>
 										<TableHead className="text-xs text-right">Price</TableHead>
 										<TableHead className="text-xs text-right">Amount</TableHead>
@@ -211,6 +318,9 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 												<Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'} className="text-xs">
 													{trade.side}
 												</Badge>
+											</TableCell>
+											<TableCell className="text-xs">
+												{trade.outcome || '-'}
 											</TableCell>
 											<TableCell className="text-xs text-right font-mono">{formatNumber(trade.size)}</TableCell>
 											<TableCell className="text-xs text-right font-mono">{formatPrice(trade.price)}</TableCell>
