@@ -23,8 +23,8 @@ export async function GET() {
 		`;
 
 		return NextResponse.json({
-			categories: categoriesResult.map((r: { category: string }) => r.category),
-			events: eventsResult.map((r: { event: string }) => r.event).filter(Boolean),
+			categories: (categoriesResult as { category: string }[]).map((r) => r.category),
+			events: (eventsResult as { event: string }[]).map((r) => r.event).filter(Boolean),
 		});
 	} catch (error) {
 		console.error('Failed to fetch filters:', error);
