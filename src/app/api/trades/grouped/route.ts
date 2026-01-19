@@ -215,25 +215,9 @@ export async function GET(request: NextRequest) {
 				// Single event - create one group
 				finalGroups.push(buildTradeGroup(walletAddr, groupTrades, timeBucket));
 			} else {
-				// Multiple events - create a multi-event group
-				// But also check if we should split same-event trades into subgroups
-				const eventGroups = new Map<string, RawTrade[]>();
-				for (const trade of groupTrades) {
-					if (!eventGroups.has(trade.condition_id)) {
-						eventGroups.set(trade.condition_id, []);
-					}
-					eventGroups.get(trade.condition_id)!.push(trade);
-				}
-
-				// Create individual event groups
-				for (const [, eventTrades] of eventGroups) {
-					finalGroups.push(buildTradeGroup(walletAddr, eventTrades, timeBucket));
-				}
-
-				// Also create an umbrella multi-event group if there are 2+ events
-				if (events.size >= 2) {
-					finalGroups.push(buildTradeGroup(walletAddr, groupTrades, timeBucket));
-				}
+				// Multiple events - create a single multi-event umbrella group
+				// Don't create individual event groups to avoid duplicate trades appearing
+				finalGroups.push(buildTradeGroup(walletAddr, groupTrades, timeBucket));
 			}
 		}
 
