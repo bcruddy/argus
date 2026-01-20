@@ -10,13 +10,13 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useTradesFilters } from '@/hooks/useTradesFilters';
-import { useTrades, Trade } from '@/hooks/useTrades';
-import { useGroupedTrades } from '@/hooks/useGroupedTrades';
+import { useFollowingTrades, FollowingTrade } from '@/hooks/useFollowingTrades';
+import { useGroupedFollowingTrades } from '@/hooks/useFollowingTrades';
+import { useFollowedWallets } from '@/hooks/useFollowedWallets';
 import { useFilterOptions } from '@/hooks/useFilterOptions';
 import { GroupedTradesView } from '@/components/GroupedTradesView';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
-import { useFollowedWallets } from '@/hooks/useFollowedWallets';
-import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, Star } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, ArrowLeft, Star } from 'lucide-react';
 
 type ViewMode = 'individual' | 'grouped';
 
@@ -45,7 +45,8 @@ function formatNumber(value: number): string {
 	}).format(value);
 }
 
-function formatWallet(wallet: string): string {
+function formatWallet(wallet: string, label?: string | null): string {
+	if (label) return label;
 	if (wallet.length <= 10) return wallet;
 	return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
 }
@@ -83,7 +84,7 @@ function useIsMobile() {
 	return isMobile;
 }
 
-function TradeCard({ trade }: { trade: Trade }) {
+function TradeCard({ trade }: { trade: FollowingTrade }) {
 	return (
 		<Card className="mb-3">
 			<CardContent className="pt-4 pb-3 px-4">
@@ -119,7 +120,9 @@ function TradeCard({ trade }: { trade: Trade }) {
 				<div className="mt-2 flex justify-between items-center text-xs">
 					<div className="flex items-center gap-1">
 						<FollowWalletButton walletAddress={trade.proxy_wallet} variant="icon" />
-						<span className="font-mono text-muted-foreground">{formatWallet(trade.proxy_wallet)}</span>
+						<span className="font-mono text-muted-foreground" title={trade.proxy_wallet}>
+							{formatWallet(trade.proxy_wallet, trade.wallet_label)}
+						</span>
 					</div>
 					<a
 						href={`https://polygonscan.com/tx/${trade.transaction_hash}`}
@@ -135,44 +138,28 @@ function TradeCard({ trade }: { trade: Trade }) {
 	);
 }
 
-function TradesTableContent() {
+function FollowingContent() {
 	const isMobile = useIsMobile();
 	const { filters, setFilters, setMinAmount, toggleSort, isHydrated } = useTradesFilters();
 	const { data: filterOptions } = useFilterOptions();
+	const { data: followedWallets, isLoading: walletsLoading } = useFollowedWallets();
 	const limit = isMobile ? 10 : 50;
 	const [viewMode, setViewMode] = useState<ViewMode>('individual');
 	const [timeWindowHours, setTimeWindowHours] = useState(24);
-	const { data, isLoading, error, refetch } = useTrades(filters, limit);
+	const { data, isLoading, error, refetch } = useFollowingTrades(filters, limit);
 	const {
 		data: groupedData,
 		isLoading: groupedLoading,
 		error: groupedError,
 		refetch: refetchGrouped,
-	} = useGroupedTrades(filters, timeWindowHours, limit);
-	const { data: followedWallets } = useFollowedWallets();
-	const [refreshing, setRefreshing] = useState(false);
-	const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+	} = useGroupedFollowingTrades(filters, timeWindowHours, limit);
 	const [eventSearch, setEventSearch] = useState('');
-	const followedCount = followedWallets?.wallets?.length || 0;
-
-	const handleRefresh = async () => {
-		setRefreshing(true);
-		try {
-			const res = await fetch('/api/ingest', { method: 'POST' });
-			if (!res.ok) throw new Error('Failed to ingest trades');
-			setLastRefresh(new Date());
-			await Promise.all([refetch(), refetchGrouped()]);
-		} catch (err) {
-			console.error('Refresh error:', err);
-		} finally {
-			setRefreshing(false);
-		}
-	};
 
 	const currentError = viewMode === 'individual' ? error : groupedError;
 	const currentLoading = viewMode === 'individual' ? isLoading : groupedLoading;
 
 	const trades = data?.trades || [];
+	const followedCount = followedWallets?.wallets?.length || 0;
 
 	const handleMinAmountChange = (value: number[]) => {
 		setMinAmount(value[0]);
@@ -188,16 +175,48 @@ function TradesTableContent() {
 		setFilters({ event: null });
 	};
 
+	// Show empty state if no wallets followed
+	if (!walletsLoading && followedCount === 0) {
+		return (
+			<div className="container mx-auto py-4 md:py-8 px-3 md:px-4">
+				<Card>
+					<CardContent className="py-12">
+						<div className="text-center">
+							<Star className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+							<h2 className="text-xl font-semibold mb-2">No wallets followed yet</h2>
+							<p className="text-muted-foreground mb-4">
+								Start following wallets from the main trades view to see their activity here.
+							</p>
+							<Link href="/">
+								<Button>
+									<ArrowLeft className="h-4 w-4 mr-2" />
+									Go to Whale Trades
+								</Button>
+							</Link>
+						</div>
+					</CardContent>
+				</Card>
+			</div>
+		);
+	}
+
 	return (
 		<div className="container mx-auto py-4 md:py-8 px-3 md:px-4">
 			<Card>
 				<CardHeader className="pb-4">
 					<div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
 						<div>
-							<CardTitle className="text-lg md:text-xl">Whale Trades</CardTitle>
+							<div className="flex items-center gap-2 mb-1">
+								<Link href="/" className="text-muted-foreground hover:text-foreground">
+									<ArrowLeft className="h-4 w-4" />
+								</Link>
+								<CardTitle className="text-lg md:text-xl flex items-center gap-2">
+									<Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+									Following
+								</CardTitle>
+							</div>
 							<CardDescription className="text-xs md:text-sm">
-								Large trades from Polymarket
-								{lastRefresh && <span className="ml-2">Last refresh: {lastRefresh.toLocaleTimeString()}</span>}
+								Trades from {followedCount} followed wallet{followedCount !== 1 ? 's' : ''}
 							</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
@@ -222,16 +241,8 @@ function TradesTableContent() {
 									By Wallet
 								</Button>
 							</div>
-							{followedCount > 0 && (
-								<Link href="/following">
-									<Button variant="outline" size="sm" className="gap-1">
-										<Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-										Following ({followedCount})
-									</Button>
-								</Link>
-							)}
-							<Button onClick={handleRefresh} disabled={refreshing} size="sm">
-								{refreshing ? 'Refreshing...' : 'Refresh'}
+							<Button onClick={() => Promise.all([refetch(), refetchGrouped()])} size="sm">
+								Refresh
 							</Button>
 						</div>
 					</div>
@@ -341,7 +352,7 @@ function TradesTableContent() {
 						/>
 					) : trades.length === 0 ? (
 						<div className="text-muted-foreground py-8 text-center text-sm">
-							No whale trades found. Click Refresh to fetch from Polymarket.
+							No trades found from followed wallets matching your filters.
 						</div>
 					) : isMobile ? (
 						// Mobile: Card layout
@@ -399,7 +410,9 @@ function TradesTableContent() {
 											<TableCell>
 												<div className="flex items-center gap-1">
 													<FollowWalletButton walletAddress={trade.proxy_wallet} variant="icon" />
-													<span className="font-mono text-sm">{formatWallet(trade.proxy_wallet)}</span>
+													<span className="font-mono text-sm" title={trade.proxy_wallet}>
+														{formatWallet(trade.proxy_wallet, trade.wallet_label)}
+													</span>
 												</div>
 											</TableCell>
 											<TableCell>
@@ -431,10 +444,10 @@ function TradesTableContent() {
 	);
 }
 
-export default function Home() {
+export default function FollowingPage() {
 	return (
 		<Suspense fallback={<div className="container mx-auto py-8 px-4 text-center">Loading...</div>}>
-			<TradesTableContent />
+			<FollowingContent />
 		</Suspense>
 	);
 }
