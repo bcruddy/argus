@@ -6,7 +6,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 export type SortField = 'time' | 'amount';
 export type SortOrder = 'asc' | 'desc';
 
-const THRESHOLD_STORAGE_KEY = 'hermes-min-amount';
+const THRESHOLD_STORAGE_KEY = 'argus-min-amount';
 const DEFAULT_THRESHOLD = 250000;
 
 export interface TradesFilters {
