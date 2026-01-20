@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { TradeGroup, TradeGroupType } from '@/schemas/api';
 import { ChevronDown, ChevronRight, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Layers, ArrowUp, ArrowDown } from 'lucide-react';
+import { FollowWalletButton } from '@/components/FollowWalletButton';
 
 // Types for outcome aggregation
 interface OutcomePosition {
@@ -188,6 +189,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 				{/* Header: Wallet + Group Type + Toggle */}
 				<div className="flex items-center justify-between mb-3">
 					<div className="flex items-center gap-2">
+						<FollowWalletButton walletAddress={group.wallet} variant="icon" />
 						<span className="font-mono text-sm">{formatWallet(group.wallet)}</span>
 						<Badge variant={groupConfig.variant} className="flex items-center gap-1">
 							{groupConfig.icon}

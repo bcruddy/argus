@@ -124,3 +124,42 @@ export interface GroupedTradesResponse {
 export function sanitizeForLike(input: string): string {
 	return input.replace(/[%_\\]/g, '\\$&');
 }
+
+// Followed wallets schemas
+export const followWalletSchema = z.object({
+	walletAddress: z
+		.string()
+		.regex(ethereumAddressRegex, 'Invalid wallet address format')
+		.transform((val) => val.toLowerCase()), // Normalize to lowercase
+	label: z
+		.string()
+		.max(100, 'Label must be 100 characters or less')
+		.trim()
+		.optional()
+		.nullable(),
+});
+
+export type FollowWalletInput = z.infer<typeof followWalletSchema>;
+
+export const updateWalletLabelSchema = z.object({
+	label: z
+		.string()
+		.max(100, 'Label must be 100 characters or less')
+		.trim()
+		.optional()
+		.nullable(),
+});
+
+export type UpdateWalletLabelInput = z.infer<typeof updateWalletLabelSchema>;
+
+// Followed wallet response type
+export interface FollowedWallet {
+	id: string;
+	walletAddress: string;
+	label: string | null;
+	createdAt: string;
+}
+
+export interface FollowedWalletsResponse {
+	wallets: FollowedWallet[];
+}
