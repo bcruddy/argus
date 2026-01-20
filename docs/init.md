@@ -1,4 +1,4 @@
-# hermes setup
+# argus setup
 
 we want to build a nextjs app to serve as an proactive indicator for big moves on the polymarket platform.
 

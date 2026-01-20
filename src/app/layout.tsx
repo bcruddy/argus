@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-	title: 'Hermes - Polymarket Whale Detection',
+	title: 'Argus - Polymarket Whale Detection',
 	description: 'Real-time whale trade detection for Polymarket',
 };
 

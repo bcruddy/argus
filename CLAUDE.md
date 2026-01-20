@@ -1,8 +1,8 @@
-# CLAUDE.md - Hermes Project
+# CLAUDE.md - Argus Project
 
 ## Project Overview
 
-Hermes is a Polymarket whale trade detection system that monitors for large trades and sends real-time alerts.
+Argus is a Polymarket whale trade detection system that monitors for large trades and sends real-time alerts.
 
 ## Tech Stack
 
