@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,6 +16,7 @@ import { useFilterOptions } from '@/hooks/useFilterOptions';
 import { GroupedTradesView } from '@/components/GroupedTradesView';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
 import { useFollowedWallets } from '@/hooks/useFollowedWallets';
+import { WhaleSplash } from '@/components/WhaleSplash';
 import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, Star, RefreshCw } from 'lucide-react';
 
 type ViewMode = 'individual' | 'grouped';
@@ -155,6 +156,24 @@ function TradesTableContent() {
 	const [eventSearch, setEventSearch] = useState('');
 	const followedCount = followedWallets?.wallets?.length || 0;
 
+	// Whale splash animation state
+	const [showWhale, setShowWhale] = useState(false);
+	const [megaTradeAmount, setMegaTradeAmount] = useState(0);
+	const hasShownWhaleRef = useRef(false);
+
+	// Detect mega trades ($1M+) and show whale animation
+	const MEGA_TRADE_THRESHOLD = 1_000_000;
+	useEffect(() => {
+		if (hasShownWhaleRef.current || !data?.trades?.length) return;
+
+		const megaTrade = data.trades.find((t) => t.usdc_value >= MEGA_TRADE_THRESHOLD);
+		if (megaTrade) {
+			hasShownWhaleRef.current = true;
+			setMegaTradeAmount(megaTrade.usdc_value);
+			setShowWhale(true);
+		}
+	}, [data?.trades]);
+
 	const handleRefresh = async () => {
 		setRefreshing(true);
 		try {
@@ -190,6 +209,11 @@ function TradesTableContent() {
 
 	return (
 		<div className="container mx-auto py-4 md:py-8 px-3 md:px-4">
+			{/* Whale splash animation for mega trades */}
+			{showWhale && (
+				<WhaleSplash amount={megaTradeAmount} onDismiss={() => setShowWhale(false)} />
+			)}
+
 			<Card>
 				<CardHeader className="pb-4">
 					<div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
