@@ -8,6 +8,11 @@ interface MarketRow {
 	condition_id: string;
 }
 
+interface MarketWithEmptyTags {
+	id: string;
+	condition_id: string;
+}
+
 async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<string, string>> {
 	const conditionToMarketId = new Map<string, string>();
 
@@ -159,10 +164,38 @@ export async function POST() {
 			}
 		}
 
+		// Backfill markets that have empty tags (limit to 20 per request)
+		const marketsWithEmptyTags = (await sql`
+			SELECT id, condition_id FROM markets
+			WHERE tags IS NULL OR jsonb_array_length(tags) = 0
+			LIMIT 20
+		`) as MarketWithEmptyTags[];
+
+		let tagsBackfilled = 0;
+		for (const market of marketsWithEmptyTags) {
+			try {
+				const marketData = await fetchMarketByConditionId(market.condition_id);
+				if (!marketData?.tags || marketData.tags.length === 0) continue;
+
+				const tagLabels = marketData.tags.map((t) => t.label).filter(Boolean);
+				if (tagLabels.length === 0) continue;
+
+				await sql`
+					UPDATE markets
+					SET tags = ${JSON.stringify(tagLabels)}, last_synced_at = ${new Date()}
+					WHERE id = ${market.id}
+				`;
+				tagsBackfilled++;
+			} catch (error) {
+				console.error(`Failed to backfill tags for market ${market.id}:`, error);
+			}
+		}
+
 		return NextResponse.json({
 			fetched: trades.length,
 			new: newTrades.length,
 			backfilled: tradesWithoutMarket.length,
+			tagsBackfilled,
 		});
 	} catch (error) {
 		console.error('Ingestion error:', error);
