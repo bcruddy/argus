@@ -16,7 +16,7 @@ import { useFilterOptions } from '@/hooks/useFilterOptions';
 import { GroupedTradesView } from '@/components/GroupedTradesView';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
 import { useFollowedWallets } from '@/hooks/useFollowedWallets';
-import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, Star } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, Star, RefreshCw } from 'lucide-react';
 
 type ViewMode = 'individual' | 'grouped';
 
@@ -201,37 +201,80 @@ function TradesTableContent() {
 							</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
-							{/* View Mode Toggle */}
-							<div className="flex rounded-lg border p-1">
-								<Button
-									variant={viewMode === 'individual' ? 'default' : 'ghost'}
-									size="sm"
-									onClick={() => setViewMode('individual')}
-									className="h-7 px-2 text-xs"
+							{/* Mobile: Dropdown for view selection */}
+							{isMobile ? (
+								<Select
+									value={viewMode}
+									onValueChange={(value) => {
+										if (value === 'following') {
+											window.location.href = '/following';
+										} else {
+											setViewMode(value as ViewMode);
+										}
+									}}
 								>
-									<List className="h-3 w-3 mr-1" />
-									Individual
-								</Button>
-								<Button
-									variant={viewMode === 'grouped' ? 'default' : 'ghost'}
-									size="sm"
-									onClick={() => setViewMode('grouped')}
-									className="h-7 px-2 text-xs"
-								>
-									<Users className="h-3 w-3 mr-1" />
-									By Wallet
-								</Button>
-							</div>
-							{followedCount > 0 && (
-								<Link href="/following">
-									<Button variant="outline" size="sm" className="gap-1">
-										<Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-										Following ({followedCount})
-									</Button>
-								</Link>
+									<SelectTrigger className="w-[140px] h-8">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="individual">
+											<span className="flex items-center gap-2">
+												<List className="h-3 w-3" />
+												Individual
+											</span>
+										</SelectItem>
+										<SelectItem value="grouped">
+											<span className="flex items-center gap-2">
+												<Users className="h-3 w-3" />
+												By Wallet
+											</span>
+										</SelectItem>
+										{followedCount > 0 && (
+											<SelectItem value="following">
+												<span className="flex items-center gap-2">
+													<Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
+													Following ({followedCount})
+												</span>
+											</SelectItem>
+										)}
+									</SelectContent>
+								</Select>
+							) : (
+								<>
+									{/* Desktop: Button group for view mode */}
+									<div className="flex rounded-lg border p-1">
+										<Button
+											variant={viewMode === 'individual' ? 'default' : 'ghost'}
+											size="sm"
+											onClick={() => setViewMode('individual')}
+											className="h-7 px-2 text-xs"
+										>
+											<List className="h-3 w-3 mr-1" />
+											Individual
+										</Button>
+										<Button
+											variant={viewMode === 'grouped' ? 'default' : 'ghost'}
+											size="sm"
+											onClick={() => setViewMode('grouped')}
+											className="h-7 px-2 text-xs"
+										>
+											<Users className="h-3 w-3 mr-1" />
+											By Wallet
+										</Button>
+									</div>
+									{followedCount > 0 && (
+										<Link href="/following">
+											<Button variant="outline" size="sm" className="gap-1">
+												<Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
+												Following ({followedCount})
+											</Button>
+										</Link>
+									)}
+								</>
 							)}
-							<Button onClick={handleRefresh} disabled={refreshing} size="sm">
-								{refreshing ? 'Refreshing...' : 'Refresh'}
+							<Button onClick={handleRefresh} disabled={refreshing} size="sm" className="gap-1">
+								<RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+								<span className="hidden sm:inline">{refreshing ? 'Refreshing...' : 'Refresh'}</span>
 							</Button>
 						</div>
 					</div>
