@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, fetchEventTagsForConditionIds } from '@/lib/polymarket';
+import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId } from '@/lib/polymarket';
 import { WHALE_THRESHOLD_DEFAULT } from '@/lib/constants';
 
 interface MarketRow {
@@ -32,6 +32,10 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 			const marketData = await fetchMarketByConditionId(conditionId);
 			if (!marketData) continue;
 
+			// The Gamma API returns a "category" field directly on the market
+			const tags = marketData.category ? [marketData.category] : [];
+			console.log(`[ingest] Market ${conditionId}: category="${marketData.category}", tags=${JSON.stringify(tags)}`);
+
 			const insertResult = (await sql`
 				INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)
 				VALUES (
@@ -40,7 +44,7 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 					${marketData.question || 'Unknown Market'},
 					${marketData.description || null},
 					${marketData.image || null},
-					'[]'::jsonb,
+					${JSON.stringify(tags)}::jsonb,
 					${marketData.active ?? true},
 					${marketData.closed ?? false},
 					${marketData.endDate ? new Date(marketData.endDate) : null},
@@ -50,6 +54,7 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 					slug = COALESCE(EXCLUDED.slug, markets.slug),
 					question = COALESCE(EXCLUDED.question, markets.question),
 					description = COALESCE(EXCLUDED.description, markets.description),
+					tags = CASE WHEN jsonb_array_length(markets.tags) = 0 THEN EXCLUDED.tags ELSE markets.tags END,
 					is_active = EXCLUDED.is_active,
 					is_closed = EXCLUDED.is_closed,
 					end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
@@ -66,41 +71,6 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 	}
 
 	return conditionToMarketId;
-}
-
-/**
- * Fetches tags from parent events and updates markets that have empty tags.
- * Tags in Polymarket live on events, not on individual markets.
- */
-async function syncTagsFromEvents(conditionIds: string[]): Promise<number> {
-	if (conditionIds.length === 0) return 0;
-
-	console.log(`[ingest] syncTagsFromEvents called with ${conditionIds.length} condition IDs`);
-
-	// Fetch event tags for all condition IDs
-	const conditionToTags = await fetchEventTagsForConditionIds(conditionIds);
-	console.log(`[ingest] fetchEventTagsForConditionIds returned ${conditionToTags.size} matches`);
-
-	if (conditionToTags.size === 0) return 0;
-
-	let updated = 0;
-	for (const [conditionId, tagLabels] of conditionToTags) {
-		try {
-			console.log(`[ingest] Updating tags for ${conditionId}: ${JSON.stringify(tagLabels)}`);
-			await sql`
-				UPDATE markets
-				SET tags = ${JSON.stringify(tagLabels)}::jsonb, last_synced_at = ${new Date()}
-				WHERE condition_id = ${conditionId}
-					AND (tags IS NULL OR jsonb_array_length(tags) = 0)
-			`;
-			updated++;
-		} catch (error) {
-			console.error(`Failed to update tags for condition ${conditionId}:`, error);
-		}
-	}
-
-	console.log(`[ingest] syncTagsFromEvents updated ${updated} markets`);
-	return updated;
 }
 
 export async function POST() {
@@ -168,9 +138,6 @@ export async function POST() {
 			`;
 		}
 
-		// Sync tags from parent events for newly synced markets
-		const tagsBackfilled = await syncTagsFromEvents(uniqueConditionIds);
-
 		// Backfill existing trades that don't have market_id (limit to 50 per request)
 		const tradesWithoutMarket = (await sql`
 			SELECT DISTINCT condition_id FROM trades
@@ -190,22 +157,34 @@ export async function POST() {
 					WHERE condition_id = ${conditionId} AND market_id IS NULL
 				`;
 			}
-
-			// Also sync tags for backfilled markets
-			await syncTagsFromEvents(backfillConditionIds);
 		}
 
-		// Backfill tags for existing markets that still have empty tags
+		// Backfill tags for existing markets that have empty tags (re-fetch from Gamma API)
 		const marketsWithEmptyTags = (await sql`
 			SELECT condition_id FROM markets
-			WHERE tags IS NULL OR jsonb_array_length(tags) = 0
-			LIMIT 50
+			WHERE tags IS NULL OR tags = '[]'::jsonb OR jsonb_array_length(tags) = 0
+			LIMIT 30
 		`) as { condition_id: string }[];
 
-		if (marketsWithEmptyTags.length > 0) {
-			const emptyTagConditionIds = marketsWithEmptyTags.map((m) => m.condition_id);
-			await syncTagsFromEvents(emptyTagConditionIds);
+		let tagsBackfilled = 0;
+		for (const market of marketsWithEmptyTags) {
+			try {
+				const marketData = await fetchMarketByConditionId(market.condition_id);
+				if (!marketData?.category) continue;
+
+				console.log(`[ingest] Backfill tags for ${market.condition_id}: category="${marketData.category}"`);
+				await sql`
+					UPDATE markets
+					SET tags = ${JSON.stringify([marketData.category])}::jsonb, last_synced_at = ${new Date()}
+					WHERE condition_id = ${market.condition_id}
+				`;
+				tagsBackfilled++;
+			} catch (error) {
+				console.error(`Failed to backfill tags for ${market.condition_id}:`, error);
+			}
 		}
+
+		console.log(`[ingest] Done: fetched=${trades.length}, new=${newTrades.length}, backfilled=${tradesWithoutMarket.length}, tagsBackfilled=${tagsBackfilled}`);
 
 		return NextResponse.json({
 			fetched: trades.length,
