@@ -142,21 +142,37 @@ export async function fetchEventTagsForConditionIds(
 			url.searchParams.set('order', 'id');
 			url.searchParams.set('ascending', 'false');
 
+			console.log(`[polymarket] Fetching events page ${page}: ${url.toString()}`);
 			const response = await fetch(url.toString(), {
 				headers: { Accept: 'application/json' },
 			});
 
-			if (!response.ok) break;
+			if (!response.ok) {
+				console.log(`[polymarket] Events API returned ${response.status}`);
+				break;
+			}
 
 			const data = await response.json();
-			if (!Array.isArray(data) || data.length === 0) break;
+			if (!Array.isArray(data) || data.length === 0) {
+				console.log(`[polymarket] Events API returned empty/non-array (page ${page})`);
+				break;
+			}
 
+			console.log(`[polymarket] Got ${data.length} events on page ${page}`);
+
+			let eventsWithTags = 0;
+			let eventsWithMarkets = 0;
 			for (const rawEvent of data) {
 				const parsed = gammaEventSchema.safeParse(rawEvent);
 				if (!parsed.success) continue;
 
 				const event = parsed.data;
-				if (!event.tags || event.tags.length === 0 || !event.markets) continue;
+				if (!event.tags || event.tags.length === 0 || !event.markets) {
+					if (event.markets && event.markets.length > 0) eventsWithMarkets++;
+					continue;
+				}
+				eventsWithTags++;
+				eventsWithMarkets++;
 
 				const tagLabels = event.tags
 					.map((t) => t.label)
@@ -171,6 +187,8 @@ export async function fetchEventTagsForConditionIds(
 					}
 				}
 			}
+
+			console.log(`[polymarket] Page ${page}: ${eventsWithTags} events with tags, ${eventsWithMarkets} with markets, ${foundIds.size}/${targetIds.size} matched so far`);
 
 			// If this page had fewer results than PAGE_SIZE, we've reached the end
 			if (data.length < PAGE_SIZE) break;

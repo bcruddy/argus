@@ -75,13 +75,18 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 async function syncTagsFromEvents(conditionIds: string[]): Promise<number> {
 	if (conditionIds.length === 0) return 0;
 
+	console.log(`[ingest] syncTagsFromEvents called with ${conditionIds.length} condition IDs`);
+
 	// Fetch event tags for all condition IDs
 	const conditionToTags = await fetchEventTagsForConditionIds(conditionIds);
+	console.log(`[ingest] fetchEventTagsForConditionIds returned ${conditionToTags.size} matches`);
+
 	if (conditionToTags.size === 0) return 0;
 
 	let updated = 0;
 	for (const [conditionId, tagLabels] of conditionToTags) {
 		try {
+			console.log(`[ingest] Updating tags for ${conditionId}: ${JSON.stringify(tagLabels)}`);
 			await sql`
 				UPDATE markets
 				SET tags = ${JSON.stringify(tagLabels)}::jsonb, last_synced_at = ${new Date()}
@@ -94,6 +99,7 @@ async function syncTagsFromEvents(conditionIds: string[]): Promise<number> {
 		}
 	}
 
+	console.log(`[ingest] syncTagsFromEvents updated ${updated} markets`);
 	return updated;
 }
 

@@ -3,6 +3,22 @@ import { sql } from '@/lib/db';
 
 export async function GET() {
 	try {
+		// Debug: check what's in the markets table
+		const marketCount = await sql`SELECT COUNT(*) as count FROM markets`;
+		const marketsWithTags = await sql`
+			SELECT COUNT(*) as count FROM markets
+			WHERE tags IS NOT NULL AND jsonb_array_length(tags) > 0
+		`;
+		const sampleTags = await sql`
+			SELECT condition_id, tags, jsonb_typeof(tags) as tag_type
+			FROM markets
+			WHERE tags IS NOT NULL
+			LIMIT 5
+		`;
+		console.log('[filters] Total markets:', marketCount[0]?.count);
+		console.log('[filters] Markets with non-empty tags:', marketsWithTags[0]?.count);
+		console.log('[filters] Sample tags:', JSON.stringify(sampleTags, null, 2));
+
 		// Get distinct categories from markets table
 		const categoriesResult = await sql`
 			SELECT DISTINCT jsonb_array_elements_text(tags) as category
@@ -10,6 +26,8 @@ export async function GET() {
 			WHERE tags IS NOT NULL AND jsonb_array_length(tags) > 0
 			ORDER BY category
 		`;
+
+		console.log('[filters] Categories found:', JSON.stringify(categoriesResult));
 
 		// Get distinct events (market questions) that have whale trades
 		const eventsResult = await sql`
