@@ -10,6 +10,7 @@ const ethereumAddressRegex = /^0x[a-fA-F0-9]{40}$/;
 // Trades API query parameters
 export const tradesQuerySchema = z.object({
 	limit: z.preprocess(nullToUndefined, z.coerce.number().int().min(1).max(100).default(50)),
+	offset: z.preprocess(nullToUndefined, z.coerce.number().int().min(0).max(10000).default(0)),
 	sort: z.preprocess(nullToUndefined, z.enum(['time', 'amount']).default('time')),
 	order: z.preprocess(nullToUndefined, z.enum(['asc', 'desc']).default('desc')),
 	category: z

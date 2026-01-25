@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
 		// Validate and parse query parameters with Zod
 		const parseResult = tradesQuerySchema.safeParse({
 			limit: searchParams.get('limit'),
+			offset: searchParams.get('offset'),
 			sort: searchParams.get('sort'),
 			order: searchParams.get('order'),
 			category: searchParams.get('category'),
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
-		const { limit, sort, order, category, event, minAmount, wallet } = parseResult.data;
+		const { limit, offset, sort, order, category, event, minAmount, wallet } = parseResult.data;
 
 		// Sanitize event search for LIKE query (escape %, _, \)
 		const sanitizedEventPattern = event ? `%${sanitizeForLike(event)}%` : null;
@@ -34,7 +35,10 @@ export async function GET(request: NextRequest) {
 		const orderByTime = sort === 'time';
 		const orderAsc = order === 'asc';
 
-		const trades = await sql`
+		// Fetch limit + 1 to determine if there are more results
+		const fetchLimit = limit + 1;
+
+		const results = await sql`
 			SELECT t.id, t.transaction_hash, t.condition_id, t.asset_id, t.outcome,
 				t.proxy_wallet, t.side, t.size, t.price, t.usdc_value,
 				t.trade_timestamp, t.is_whale, t.detection_rule,
@@ -55,10 +59,15 @@ export async function GET(request: NextRequest) {
 				CASE WHEN ${orderByTime} AND NOT ${orderAsc} THEN t.trade_timestamp END DESC,
 				CASE WHEN NOT ${orderByTime} AND ${orderAsc} THEN t.usdc_value END ASC,
 				CASE WHEN NOT ${orderByTime} AND NOT ${orderAsc} THEN t.usdc_value END DESC
-			LIMIT ${limit}
+			LIMIT ${fetchLimit}
+			OFFSET ${offset}
 		`;
 
-		return NextResponse.json({ trades });
+		// Check if there are more results beyond the requested limit
+		const hasMore = results.length > limit;
+		const trades = hasMore ? results.slice(0, limit) : results;
+
+		return NextResponse.json({ trades, hasMore, offset });
 	} catch (error) {
 		console.error('Failed to fetch trades:', error);
 		return NextResponse.json({ error: 'Failed to fetch trades' }, { status: 500 });

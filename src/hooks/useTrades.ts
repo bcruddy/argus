@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import type { TradesFilters } from './useTradesFilters';
 
 export interface Trade {
@@ -24,11 +24,18 @@ export interface Trade {
 
 export interface TradesResponse {
 	trades: Trade[];
+	hasMore: boolean;
+	offset: number;
 }
 
-async function fetchTrades(filters: TradesFilters, limit: number): Promise<TradesResponse> {
+async function fetchTrades(
+	filters: TradesFilters,
+	limit: number,
+	offset: number = 0,
+): Promise<TradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
+	params.set('offset', String(offset));
 	if (filters.sort !== 'time') params.set('sort', filters.sort);
 	if (filters.order !== 'desc') params.set('order', filters.order);
 	if (filters.category) params.set('category', filters.category);
@@ -44,5 +51,17 @@ export function useTrades(filters: TradesFilters, limit: number = 50) {
 	return useQuery({
 		queryKey: ['trades', filters, limit],
 		queryFn: () => fetchTrades(filters, limit),
+	});
+}
+
+export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20) {
+	return useInfiniteQuery({
+		queryKey: ['infiniteTrades', filters, pageSize],
+		queryFn: ({ pageParam = 0 }) => fetchTrades(filters, pageSize, pageParam),
+		initialPageParam: 0,
+		getNextPageParam: (lastPage) => {
+			if (!lastPage.hasMore) return undefined;
+			return lastPage.offset + pageSize;
+		},
 	});
 }
