@@ -10,7 +10,8 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useTradesFilters } from '@/hooks/useTradesFilters';
-import { useTrades, Trade } from '@/hooks/useTrades';
+import { useTrades, useInfiniteTrades, Trade } from '@/hooks/useTrades';
+import { useIntersectionObserver } from '@/hooks/useIntersectionObserver';
 import { useGroupedTrades } from '@/hooks/useGroupedTrades';
 import { useFilterOptions } from '@/hooks/useFilterOptions';
 import { GroupedTradesView } from '@/components/GroupedTradesView';
@@ -140,16 +141,43 @@ function TradesTableContent() {
 	const isMobile = useIsMobile();
 	const { filters, setFilters, setMinAmount, toggleSort, isHydrated } = useTradesFilters();
 	const { data: filterOptions } = useFilterOptions();
-	const limit = isMobile ? 10 : 50;
+	const desktopLimit = 50;
+	const mobilePageSize = 20;
 	const [viewMode, setViewMode] = useState<ViewMode>('individual');
 	const [timeWindowHours, setTimeWindowHours] = useState(24);
-	const { data, isLoading, error, refetch } = useTrades(filters, limit);
+
+	// Desktop: use regular query
+	const { data, isLoading, error, refetch } = useTrades(filters, desktopLimit);
+
+	// Mobile: use infinite query for endless scrolling
+	const {
+		data: infiniteData,
+		isLoading: infiniteLoading,
+		error: infiniteError,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
+		refetch: refetchInfinite,
+	} = useInfiniteTrades(filters, mobilePageSize);
+
+	// Intersection observer for infinite scroll sentinel
+	const { ref: sentinelRef, isIntersecting } = useIntersectionObserver({
+		rootMargin: '200px',
+		enabled: isMobile && viewMode === 'individual' && hasNextPage && !isFetchingNextPage,
+	});
+
+	// Fetch next page when sentinel is visible
+	useEffect(() => {
+		if (isIntersecting && hasNextPage && !isFetchingNextPage) {
+			fetchNextPage();
+		}
+	}, [isIntersecting, hasNextPage, isFetchingNextPage, fetchNextPage]);
 	const {
 		data: groupedData,
 		isLoading: groupedLoading,
 		error: groupedError,
 		refetch: refetchGrouped,
-	} = useGroupedTrades(filters, timeWindowHours, limit);
+	} = useGroupedTrades(filters, timeWindowHours, desktopLimit);
 	const { data: followedWallets } = useFollowedWallets();
 	const [refreshing, setRefreshing] = useState(false);
 	const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -180,7 +208,7 @@ function TradesTableContent() {
 			const res = await fetch('/api/ingest', { method: 'POST' });
 			if (!res.ok) throw new Error('Failed to ingest trades');
 			setLastRefresh(new Date());
-			await Promise.all([refetch(), refetchGrouped()]);
+			await Promise.all([refetch(), refetchGrouped(), refetchInfinite()]);
 		} catch (err) {
 			console.error('Refresh error:', err);
 		} finally {
@@ -188,10 +216,18 @@ function TradesTableContent() {
 		}
 	};
 
-	const currentError = viewMode === 'individual' ? error : groupedError;
-	const currentLoading = viewMode === 'individual' ? isLoading : groupedLoading;
+	// Mobile uses infinite query, desktop uses regular query
+	const mobileError = viewMode === 'individual' ? infiniteError : groupedError;
+	const mobileLoading = viewMode === 'individual' ? infiniteLoading : groupedLoading;
+	const desktopError = viewMode === 'individual' ? error : groupedError;
+	const desktopLoading = viewMode === 'individual' ? isLoading : groupedLoading;
 
+	const currentError = isMobile ? mobileError : desktopError;
+	const currentLoading = isMobile ? mobileLoading : desktopLoading;
+
+	// Flatten infinite query pages for mobile, use regular data for desktop
 	const trades = data?.trades || [];
+	const mobileTrades = infiniteData?.pages.flatMap((page) => page.trades) || [];
 
 	const handleMinAmountChange = (value: number[]) => {
 		setMinAmount(value[0]);
@@ -406,16 +442,37 @@ function TradesTableContent() {
 							timeWindowHours={timeWindowHours}
 							totalTrades={groupedData?.meta.totalTrades || 0}
 						/>
-					) : trades.length === 0 ? (
+					) : (isMobile ? mobileTrades.length === 0 : trades.length === 0) ? (
 						<div className="text-muted-foreground py-8 text-center text-sm">
 							No whale trades found. Click Refresh to fetch from Polymarket.
 						</div>
 					) : isMobile ? (
-						// Mobile: Card layout
+						// Mobile: Card layout with infinite scroll
 						<div>
-							{trades.map((trade) => (
+							{mobileTrades.map((trade) => (
 								<TradeCard key={trade.id} trade={trade} />
 							))}
+
+							{/* Infinite scroll sentinel */}
+							<div
+								ref={sentinelRef}
+								className="h-4"
+								aria-hidden="true"
+							/>
+
+							{/* Loading indicator for next page */}
+							{isFetchingNextPage && (
+								<div className="py-4 text-center text-sm text-muted-foreground">
+									Loading more trades...
+								</div>
+							)}
+
+							{/* End of results indicator */}
+							{!hasNextPage && mobileTrades.length > 0 && (
+								<div className="py-4 text-center text-xs text-muted-foreground">
+									No more trades to load
+								</div>
+							)}
 						</div>
 					) : (
 						// Desktop: Table layout
@@ -486,10 +543,10 @@ function TradesTableContent() {
 						</div>
 					)}
 
-					{/* Results count (only for individual view) */}
-					{viewMode === 'individual' && trades.length > 0 && (
+					{/* Results count (only for individual view on desktop) */}
+					{viewMode === 'individual' && !isMobile && trades.length > 0 && (
 						<div className="mt-4 text-xs text-muted-foreground text-center">
-							Showing {trades.length} trades {isMobile && '(limited on mobile)'}
+							Showing {trades.length} trades
 						</div>
 					)}
 				</CardContent>
