@@ -11,7 +11,6 @@ export const DOOMSCROLL_CATEGORIES = ['Geopolitics', 'Politics', 'Iran', 'Israel
 // Ingestion paging limits
 export const INGEST_MAX_DAYS_BACK = 364;
 export const INGEST_MIN_WHALE_TRADES = 10;
-export const INGEST_PAGE_SIZE = 500;
 
 // Whale detection thresholds
 export const WHALE_THRESHOLD_DEFAULT = Number(process.env.WHALE_THRESHOLD_DEFAULT || 250000);

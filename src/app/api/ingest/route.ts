@@ -1,12 +1,70 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { sql } from '@/lib/db';
-import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, extractMarketTags, fetchEventTagsBySlug, getEventSlug } from '@/lib/polymarket';
+import { calculateUsdValue, fetchMarketByConditionId, extractMarketTags, fetchEventTagsBySlug, getEventSlug } from '@/lib/polymarket';
+import { polymarketTradeSchema } from '@/schemas/trade';
 import {
+	POLYMARKET_DATA_API_URL,
 	WHALE_THRESHOLD_DEFAULT,
 	INGEST_MAX_DAYS_BACK,
 	INGEST_MIN_WHALE_TRADES,
-	INGEST_PAGE_SIZE,
 } from '@/lib/constants';
+
+const tradesResponseSchema = z.array(polymarketTradeSchema);
+
+const PAGE_SIZE = 100;
+const MAX_PAGES = 50;
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+async function fetchTradesPage(offset: number): Promise<z.infer<typeof polymarketTradeSchema>[] | null> {
+	const url = new URL('/trades', POLYMARKET_DATA_API_URL);
+	url.searchParams.set('filterType', 'CASH');
+	url.searchParams.set('filterAmount', String(WHALE_THRESHOLD_DEFAULT));
+	url.searchParams.set('limit', String(PAGE_SIZE));
+	if (offset > 0) {
+		url.searchParams.set('offset', String(offset));
+	}
+
+	for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+		try {
+			const response = await fetch(url.toString(), {
+				headers: { Accept: 'application/json' },
+			});
+
+			if (response.status === 408 || response.status >= 500) {
+				if (attempt < RETRY_DELAYS.length) {
+					console.warn(`Polymarket trades API ${response.status}, retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+					await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+					continue;
+				}
+				console.error(`Polymarket trades API ${response.status} after ${RETRY_DELAYS.length} retries, skipping page at offset ${offset}`);
+				return null;
+			}
+
+			if (!response.ok) {
+				console.error(`Polymarket trades API ${response.status} ${response.statusText}`);
+				return null;
+			}
+
+			const data = await response.json();
+			const parsed = tradesResponseSchema.safeParse(data);
+			if (!parsed.success) {
+				console.error('Failed to parse trades response:', parsed.error.flatten());
+				return null;
+			}
+			return parsed.data;
+		} catch (error) {
+			if (attempt < RETRY_DELAYS.length) {
+				console.warn(`Polymarket trades fetch error, retry ${attempt + 1}/${RETRY_DELAYS.length}:`, error);
+				await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+				continue;
+			}
+			console.error(`Polymarket trades fetch failed after retries at offset ${offset}:`, error);
+			return null;
+		}
+	}
+	return null;
+}
 
 interface MarketRow {
 	id: string;
@@ -130,20 +188,16 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 export async function POST() {
 	try {
 		const cutoffMs = Date.now() - INGEST_MAX_DAYS_BACK * 24 * 60 * 60 * 1000;
-		const maxPages = 100; // Safety limit to prevent runaway fetching
 		let totalFetched = 0;
 		let totalNew = 0;
 		let offset = 0;
 		let reachedExistingData = false;
 
-		for (let page = 0; page < maxPages; page++) {
-			const trades = await fetchWhaleTrades({
-				minAmount: WHALE_THRESHOLD_DEFAULT,
-				limit: INGEST_PAGE_SIZE,
-				offset,
-			});
+		for (let page = 0; page < MAX_PAGES; page++) {
+			const trades = await fetchTradesPage(offset);
 
-			if (trades.length === 0) break;
+			// null = fetch failed after retries, stop paging gracefully
+			if (!trades || trades.length === 0) break;
 			totalFetched += trades.length;
 
 			// Check if oldest trade on this page is beyond our cutoff
@@ -220,17 +274,13 @@ export async function POST() {
 				}
 			}
 
-			// Stop conditions:
-			// 1. Reached our time cutoff (364 days back)
+			// Stop conditions
 			if (pastCutoff) break;
-			// 2. Found enough new whale trades
 			if (totalNew >= INGEST_MIN_WHALE_TRADES) break;
-			// 3. Reached data we already have (all duplicates)
 			if (reachedExistingData) break;
-			// 4. API returned fewer results than requested (no more data)
-			if (trades.length < INGEST_PAGE_SIZE) break;
+			if (trades.length < PAGE_SIZE) break;
 
-			offset += INGEST_PAGE_SIZE;
+			offset += PAGE_SIZE;
 		}
 
 		// Backfill existing trades that don't have market_id (limit to 50 per request)
