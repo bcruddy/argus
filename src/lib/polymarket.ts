@@ -17,10 +17,12 @@ const gammaEventSchema = z.object({
 }).passthrough();
 
 // Schema for Polymarket Gamma API market response
-// Tags live on events nested inside markets, not directly on the market
+// Tags live on events, not directly on markets. The market response includes
+// an event_slug field that links to the parent event where tags are defined.
 const gammaMarketSchema = z.object({
 	conditionId: z.string(),
 	slug: z.string().optional(),
+	event_slug: z.string().optional(),
 	question: z.string().optional(),
 	description: z.string().optional(),
 	image: z.string().optional(),
@@ -30,9 +32,17 @@ const gammaMarketSchema = z.object({
 	closed: z.boolean().optional(),
 	endDate: z.string().optional(),
 	closedTime: z.string().optional(),
-});
+}).passthrough();
 
 export type GammaMarket = z.infer<typeof gammaMarketSchema>;
+
+/** Get the event slug from a market response, checking both naming conventions */
+export function getEventSlug(market: GammaMarket): string | undefined {
+	// The Gamma API may return the field as event_slug or eventSlug
+	// .passthrough() preserves extra fields, so check both
+	const raw = market as Record<string, unknown>;
+	return market.event_slug || (raw.eventSlug as string | undefined) || undefined;
+}
 
 /** Extract tag labels from a Gamma market, checking nested events as fallback */
 export function extractMarketTags(market: GammaMarket): string[] {
@@ -129,25 +139,38 @@ export async function fetchMarketByConditionId(conditionId: string): Promise<Gam
 }
 
 /**
- * Fetch tags for a market by looking up its parent event via slug.
- * The /events endpoint reliably returns tags, unlike /markets which
- * may not include them.
+ * Fetch tags for a market by looking up its parent event via event_slug.
+ * Tags live on events, not markets. The /events/slug/{slug} endpoint
+ * returns the event with its tags array.
  */
-export async function fetchEventTagsBySlug(slug: string): Promise<string[]> {
+export async function fetchEventTagsBySlug(eventSlug: string): Promise<string[]> {
 	try {
-		const url = new URL('/events', POLYMARKET_GAMMA_API_URL);
-		url.searchParams.set('slug', slug);
+		// Use the path-based endpoint: /events/slug/{event_slug}
+		const url = `${POLYMARKET_GAMMA_API_URL}/events/slug/${encodeURIComponent(eventSlug)}`;
 
-		const response = await fetch(url.toString(), {
+		const response = await fetch(url, {
 			headers: { Accept: 'application/json' },
 		});
 
-		if (!response.ok) return [];
+		if (!response.ok) {
+			// Fallback: try query-based endpoint /events?slug={slug}
+			const fallbackUrl = new URL('/events', POLYMARKET_GAMMA_API_URL);
+			fallbackUrl.searchParams.set('slug', eventSlug);
+			const fallbackResponse = await fetch(fallbackUrl.toString(), {
+				headers: { Accept: 'application/json' },
+			});
+			if (!fallbackResponse.ok) return [];
+			const fallbackData = await fallbackResponse.json();
+			const event = Array.isArray(fallbackData) ? fallbackData[0] : fallbackData;
+			const tags = event?.tags;
+			if (!Array.isArray(tags)) return [];
+			return tags
+				.map((t: { label?: string }) => t.label)
+				.filter(Boolean) as string[];
+		}
 
-		const data = await response.json();
-		if (!Array.isArray(data) || data.length === 0) return [];
-
-		const event = data[0];
+		// /events/slug/{slug} returns a single event object (not an array)
+		const event = await response.json();
 		const tags = event?.tags;
 		if (!Array.isArray(tags)) return [];
 

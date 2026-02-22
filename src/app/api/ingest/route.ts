@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, extractMarketTags, fetchEventTagsBySlug } from '@/lib/polymarket';
+import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, extractMarketTags, fetchEventTagsBySlug, getEventSlug } from '@/lib/polymarket';
 import {
 	WHALE_THRESHOLD_DEFAULT,
 	INGEST_MAX_DAYS_BACK,
@@ -33,7 +33,10 @@ async function upsertMarket(conditionId: string, marketData: NonNullable<Awaited
 			question = COALESCE(EXCLUDED.question, markets.question),
 			description = COALESCE(EXCLUDED.description, markets.description),
 			image_url = COALESCE(EXCLUDED.image_url, markets.image_url),
-			tags = EXCLUDED.tags,
+			tags = CASE
+				WHEN jsonb_array_length(EXCLUDED.tags) > 0 THEN EXCLUDED.tags
+				ELSE markets.tags
+			END,
 			is_active = EXCLUDED.is_active,
 			is_closed = EXCLUDED.is_closed,
 			end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
@@ -45,7 +48,6 @@ async function upsertMarket(conditionId: string, marketData: NonNullable<Awaited
 }
 
 interface ExistingMarketRow extends MarketRow {
-	slug: string | null;
 	tags: string[] | null;
 }
 
@@ -56,7 +58,7 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 
 	// Check which markets already exist, including their tag state
 	const existingMarkets = (await sql`
-		SELECT id, condition_id, slug, tags FROM markets
+		SELECT id, condition_id, tags FROM markets
 		WHERE condition_id = ANY(${conditionIds})
 	`) as ExistingMarketRow[];
 
@@ -80,10 +82,11 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 			const marketData = await fetchMarketByConditionId(conditionId);
 			if (!marketData) continue;
 
-			// Extract tags: try market/nested events first, then events endpoint
+			// Extract tags: try market/nested events first, then parent event endpoint
 			let tagLabels = extractMarketTags(marketData);
-			if (tagLabels.length === 0 && marketData.slug) {
-				tagLabels = await fetchEventTagsBySlug(marketData.slug);
+			const eventSlug = getEventSlug(marketData);
+			if (tagLabels.length === 0 && eventSlug) {
+				tagLabels = await fetchEventTagsBySlug(eventSlug);
 			}
 
 			const id = await upsertMarket(conditionId, marketData, tagLabels);
@@ -103,10 +106,10 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 
 			let tagLabels = extractMarketTags(marketData);
 
-			// If /markets didn't return tags, try the /events endpoint via slug
-			const slug = marketData.slug || market.slug;
-			if (tagLabels.length === 0 && slug) {
-				tagLabels = await fetchEventTagsBySlug(slug);
+			// If /markets didn't return tags, try the /events endpoint via event_slug
+			const eventSlug = getEventSlug(marketData);
+			if (tagLabels.length === 0 && eventSlug) {
+				tagLabels = await fetchEventTagsBySlug(eventSlug);
 			}
 
 			if (tagLabels.length > 0) {

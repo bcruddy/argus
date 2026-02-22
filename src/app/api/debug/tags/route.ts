@@ -41,11 +41,29 @@ export async function GET() {
 			LIMIT 5
 		`;
 
+		// Test the ?| operator with doomscroll categories to verify SQL filtering works
+		const filterTest = await sql`
+			SELECT COUNT(*) as matching_markets
+			FROM markets
+			WHERE tags ?| ARRAY['Geopolitics', 'Politics', 'Iran', 'Israel']
+		`;
+
+		// Check JSONB type of tags column for a few markets
+		const typeCheck = await sql`
+			SELECT condition_id, jsonb_typeof(tags) as tag_type,
+				tags::text as raw_tags
+			FROM markets
+			WHERE tags IS NOT NULL
+			LIMIT 5
+		`;
+
 		return NextResponse.json({
 			tagDistribution: tagStats,
 			counts: counts[0],
 			sampleMissingTags: missingTags,
 			sampleWithTags: withTags,
+			filterTest: filterTest[0],
+			typeCheck,
 		});
 	} catch (error) {
 		console.error('Debug tags error:', error);
