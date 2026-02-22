@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { POLYMARKET_GAMMA_API_URL } from './constants';
+import { polymarketTradeSchema, type PolymarketTrade } from '@/schemas/trade';
+import { POLYMARKET_DATA_API_URL, POLYMARKET_GAMMA_API_URL, WHALE_THRESHOLD_DEFAULT } from './constants';
+
+const tradesResponseSchema = z.array(polymarketTradeSchema);
 
 // Schema for tag objects used in Gamma API responses
 const gammaTagSchema = z.object({
@@ -63,6 +66,66 @@ export function extractMarketTags(market: GammaMarket): string[] {
 	if (eventTags && eventTags.length > 0) return [...new Set(eventTags)];
 
 	return [];
+}
+
+export interface FetchWhaleTradesOptions {
+	minAmount?: number;
+	limit?: number;
+	offset?: number;
+}
+
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+export async function fetchWhaleTrades(options: FetchWhaleTradesOptions = {}): Promise<PolymarketTrade[]> {
+	const { minAmount = WHALE_THRESHOLD_DEFAULT, limit = 100, offset } = options;
+
+	const url = new URL('/trades', POLYMARKET_DATA_API_URL);
+	url.searchParams.set('filterType', 'CASH');
+	url.searchParams.set('filterAmount', String(minAmount));
+	url.searchParams.set('limit', String(limit));
+	if (offset !== undefined && offset > 0) {
+		url.searchParams.set('offset', String(offset));
+	}
+
+	for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+		try {
+			const response = await fetch(url.toString(), {
+				headers: { Accept: 'application/json' },
+			});
+
+			if (response.status === 408 || response.status >= 500) {
+				if (attempt < RETRY_DELAYS.length) {
+					console.warn(`Polymarket trades API ${response.status}, retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+					await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+					continue;
+				}
+				throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
+			}
+
+			if (!response.ok) {
+				throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
+			}
+
+			const data = await response.json();
+			const parsed = tradesResponseSchema.safeParse(data);
+
+			if (!parsed.success) {
+				console.error('Failed to parse Polymarket trades:', parsed.error.flatten());
+				throw new Error('Invalid response from Polymarket API');
+			}
+
+			return parsed.data;
+		} catch (error) {
+			if (error instanceof TypeError && attempt < RETRY_DELAYS.length) {
+				console.warn(`Polymarket trades fetch network error, retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+				await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+				continue;
+			}
+			throw error;
+		}
+	}
+
+	throw new Error('Polymarket API request failed after retries');
 }
 
 export function calculateUsdValue(size: number, price: number): number {
