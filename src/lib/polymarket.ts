@@ -44,17 +44,25 @@ export function getEventSlug(market: GammaMarket): string | undefined {
 	return market.event_slug || (raw.eventSlug as string | undefined) || undefined;
 }
 
-/** Extract tag labels from a Gamma market, checking nested events as fallback */
+// Generic tags that don't provide useful categorization
+const GENERIC_TAGS = new Set(['All']);
+
+/** Extract tag labels from a Gamma market, checking nested events as fallback.
+ *  Filters out generic tags like "All" that don't help with categorization. */
 export function extractMarketTags(market: GammaMarket): string[] {
 	// Try direct market tags first
-	const directTags = market.tags?.map((t) => t.label).filter(Boolean) as string[] | undefined;
+	const directTags = market.tags
+		?.map((t) => t.label)
+		.filter((label): label is string => typeof label === 'string' && label.length > 0)
+		.filter((label) => !GENERIC_TAGS.has(label));
 	if (directTags && directTags.length > 0) return directTags;
 
 	// Fall back to tags from nested events
 	const eventTags = market.events
 		?.flatMap((e) => e.tags ?? [])
 		.map((t) => t.label)
-		.filter(Boolean) as string[] | undefined;
+		.filter((label): label is string => typeof label === 'string' && label.length > 0)
+		.filter((label) => !GENERIC_TAGS.has(label));
 	if (eventTags && eventTags.length > 0) return [...new Set(eventTags)];
 
 	return [];
