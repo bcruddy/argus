@@ -13,10 +13,10 @@ import { useTradesFilters } from '@/hooks/useTradesFilters';
 import { useFollowingTrades, FollowingTrade } from '@/hooks/useFollowingTrades';
 import { useGroupedFollowingTrades } from '@/hooks/useFollowingTrades';
 import { useFollowedWallets } from '@/hooks/useFollowedWallets';
-import { useFilterOptions } from '@/hooks/useFilterOptions';
 import { GroupedTradesView } from '@/components/GroupedTradesView';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
-import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, ArrowLeft, Star } from 'lucide-react';
+import { DOOMSCROLL_CATEGORIES } from '@/lib/constants';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, List, Users, ArrowLeft, Star, Flame } from 'lucide-react';
 
 type ViewMode = 'individual' | 'grouped';
 
@@ -141,7 +141,6 @@ function TradeCard({ trade }: { trade: FollowingTrade }) {
 function FollowingContent() {
 	const isMobile = useIsMobile();
 	const { filters, setFilters, setMinAmount, toggleSort, isHydrated } = useTradesFilters();
-	const { data: filterOptions } = useFilterOptions();
 	const { data: followedWallets, isLoading: walletsLoading } = useFollowedWallets();
 	const limit = isMobile ? 10 : 50;
 	const [viewMode, setViewMode] = useState<ViewMode>('individual');
@@ -249,26 +248,23 @@ function FollowingContent() {
 
 					{/* Filters */}
 					<div className="mt-4 space-y-4">
-						{/* Category and Event filters */}
+						{/* Doomscroll toggle and Event search */}
 						<div className="flex flex-col sm:flex-row gap-3">
-							<div className="flex-1">
+							<div className="shrink-0">
 								<label className="text-xs text-muted-foreground mb-1 block">Category</label>
-								<Select
-									value={filters.category || ''}
-									onValueChange={(value) => setFilters({ category: value === 'all' ? null : value })}
+								<Button
+									variant={filters.categories ? 'default' : 'outline'}
+									size="sm"
+									onClick={() =>
+										setFilters({
+											categories: filters.categories ? null : DOOMSCROLL_CATEGORIES.join(','),
+										})
+									}
+									className="gap-1.5 h-9"
 								>
-									<SelectTrigger className="w-full">
-										<SelectValue placeholder="All Categories" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="all">All Categories</SelectItem>
-										{filterOptions?.categories.map((cat) => (
-											<SelectItem key={cat} value={cat}>
-												{cat}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
+									<Flame className={`h-4 w-4 ${filters.categories ? 'text-orange-300' : ''}`} />
+									{filters.categories ? 'Ruining My Day' : 'Ruin My Day'}
+								</Button>
 							</div>
 							<div className="flex-1">
 								<label className="text-xs text-muted-foreground mb-1 block">Event Search</label>

@@ -38,7 +38,7 @@ async function fetchTrades(
 	params.set('offset', String(offset));
 	if (filters.sort !== 'time') params.set('sort', filters.sort);
 	if (filters.order !== 'desc') params.set('order', filters.order);
-	if (filters.category) params.set('category', filters.category);
+	if (filters.categories) params.set('categories', filters.categories);
 	if (filters.event) params.set('event', filters.event);
 	if (filters.minAmount) params.set('minAmount', String(filters.minAmount));
 

@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 			limit: searchParams.get('limit'),
 			sort: searchParams.get('sort'),
 			order: searchParams.get('order'),
-			category: searchParams.get('category'),
+			categories: searchParams.get('categories'),
 			event: searchParams.get('event'),
 			minAmount: searchParams.get('minAmount'),
 			wallet: searchParams.get('wallet'),
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
-		const { limit, sort, order, category, event, minAmount, wallet } = parseResult.data;
+		const { limit, sort, order, categories, event, minAmount, wallet } = parseResult.data;
 
 		// Sanitize event search for LIKE query (escape %, _, \)
 		const sanitizedEventPattern = event ? `%${sanitizeForLike(event)}%` : null;
@@ -40,6 +40,8 @@ export async function GET(request: NextRequest) {
 		// Build query using parameterized statements
 		const orderByTime = sort === 'time';
 		const orderAsc = order === 'asc';
+
+		const categoriesParam = categories || null;
 
 		// Query trades only from wallets the user is following
 		const trades = await sql`
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
 			LEFT JOIN markets m ON t.market_id = m.id
 			INNER JOIN followed_wallets fw ON LOWER(t.proxy_wallet) = fw.wallet_address AND fw.clerk_id = ${userId}
 			WHERE t.is_whale = true
-				AND (${category}::text IS NULL OR m.tags ? ${category})
+				AND (${categoriesParam}::text IS NULL OR m.tags ?| string_to_array(${categoriesParam}, ','))
 				AND (${sanitizedEventPattern}::text IS NULL OR
 					LOWER(t.title) LIKE LOWER(${sanitizedEventPattern}) OR
 					LOWER(m.question) LIKE LOWER(${sanitizedEventPattern}))

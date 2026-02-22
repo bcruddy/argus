@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 			offset: searchParams.get('offset'),
 			sort: searchParams.get('sort'),
 			order: searchParams.get('order'),
-			category: searchParams.get('category'),
+			categories: searchParams.get('categories'),
 			event: searchParams.get('event'),
 			minAmount: searchParams.get('minAmount'),
 			wallet: searchParams.get('wallet'),
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
-		const { limit, offset, sort, order, category, event, minAmount, wallet } = parseResult.data;
+		const { limit, offset, sort, order, categories, event, minAmount, wallet } = parseResult.data;
 
 		// Sanitize event search for LIKE query (escape %, _, \)
 		const sanitizedEventPattern = event ? `%${sanitizeForLike(event)}%` : null;
@@ -38,6 +38,10 @@ export async function GET(request: NextRequest) {
 		// Fetch limit + 1 to determine if there are more results
 		const fetchLimit = limit + 1;
 
+		// Pass categories as comma-separated string; SQL splits with string_to_array
+		// The ?| operator checks if any array element exists in the JSONB tags
+		const categoriesParam = categories || null;
+
 		const results = await sql`
 			SELECT t.id, t.transaction_hash, t.condition_id, t.asset_id, t.outcome,
 				t.proxy_wallet, t.side, t.size, t.price, t.usdc_value,
@@ -48,7 +52,7 @@ export async function GET(request: NextRequest) {
 			FROM trades t
 			LEFT JOIN markets m ON t.market_id = m.id
 			WHERE t.is_whale = true
-				AND (${category}::text IS NULL OR m.tags ? ${category})
+				AND (${categoriesParam}::text IS NULL OR m.tags ?| string_to_array(${categoriesParam}, ','))
 				AND (${sanitizedEventPattern}::text IS NULL OR
 					LOWER(t.title) LIKE LOWER(${sanitizedEventPattern}) OR
 					LOWER(m.question) LIKE LOWER(${sanitizedEventPattern}))

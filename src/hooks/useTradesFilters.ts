@@ -12,7 +12,7 @@ const DEFAULT_THRESHOLD = 250000;
 export interface TradesFilters {
 	sort: SortField;
 	order: SortOrder;
-	category: string | null;
+	categories: string | null;
 	event: string | null;
 	minAmount: number;
 }
@@ -65,7 +65,7 @@ export function useTradesFilters() {
 		() => ({
 			sort: (searchParams.get('sort') as SortField) || 'time',
 			order: (searchParams.get('order') as SortOrder) || 'desc',
-			category: searchParams.get('category'),
+			categories: searchParams.get('categories'),
 			event: searchParams.get('event'),
 			minAmount,
 		}),
@@ -86,9 +86,9 @@ export function useTradesFilters() {
 				else params.set('order', updates.order);
 			}
 
-			if (updates.category !== undefined) {
-				if (updates.category === null || updates.category === '') params.delete('category');
-				else params.set('category', updates.category);
+			if (updates.categories !== undefined) {
+				if (updates.categories === null || updates.categories === '') params.delete('categories');
+				else params.set('categories', updates.categories);
 			}
 
 			if (updates.event !== undefined) {

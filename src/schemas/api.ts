@@ -13,10 +13,10 @@ export const tradesQuerySchema = z.object({
 	offset: z.preprocess(nullToUndefined, z.coerce.number().int().min(0).max(10000).default(0)),
 	sort: z.preprocess(nullToUndefined, z.enum(['time', 'amount']).default('time')),
 	order: z.preprocess(nullToUndefined, z.enum(['asc', 'desc']).default('desc')),
-	category: z
+	categories: z
 		.string()
-		.max(100)
-		.regex(/^[a-zA-Z0-9\s\-_]+$/, 'Invalid category format')
+		.max(500)
+		.regex(/^[a-zA-Z0-9\s\-_,]+$/, 'Invalid categories format')
 		.optional()
 		.nullable(),
 	event: z
@@ -40,10 +40,10 @@ export type TradesQuery = z.infer<typeof tradesQuerySchema>;
 
 // Grouped trades API query parameters
 export const groupedTradesQuerySchema = z.object({
-	category: z
+	categories: z
 		.string()
-		.max(100)
-		.regex(/^[a-zA-Z0-9\s\-_]+$/, 'Invalid category format')
+		.max(500)
+		.regex(/^[a-zA-Z0-9\s\-_,]+$/, 'Invalid categories format')
 		.optional()
 		.nullable(),
 	event: z

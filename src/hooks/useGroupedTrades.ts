@@ -7,7 +7,7 @@ import type { TradeGroup, GroupedTradesResponse } from '@/schemas/api';
 export type { TradeGroup, GroupedTradesResponse };
 
 export interface GroupedTradesFilters {
-	category: string | null;
+	categories: string | null;
 	event: string | null;
 	minAmount: number;
 	timeWindowHours: number;
@@ -20,7 +20,7 @@ async function fetchGroupedTrades(
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
 	params.set('timeWindowHours', String(filters.timeWindowHours));
-	if (filters.category) params.set('category', filters.category);
+	if (filters.categories) params.set('categories', filters.categories);
 	if (filters.event) params.set('event', filters.event);
 	if (filters.minAmount) params.set('minAmount', String(filters.minAmount));
 
@@ -31,7 +31,7 @@ async function fetchGroupedTrades(
 
 export function useGroupedTrades(filters: TradesFilters, timeWindowHours: number, limit: number = 50) {
 	const groupedFilters: GroupedTradesFilters = {
-		category: filters.category,
+		categories: filters.categories,
 		event: filters.event,
 		minAmount: filters.minAmount,
 		timeWindowHours,

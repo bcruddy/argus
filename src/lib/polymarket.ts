@@ -27,15 +27,19 @@ export type GammaMarket = z.infer<typeof gammaMarketSchema>;
 export interface FetchWhaleTradesOptions {
 	minAmount?: number;
 	limit?: number;
+	offset?: number;
 }
 
 export async function fetchWhaleTrades(options: FetchWhaleTradesOptions = {}): Promise<PolymarketTrade[]> {
-	const { minAmount = WHALE_THRESHOLD_DEFAULT, limit = 100 } = options;
+	const { minAmount = WHALE_THRESHOLD_DEFAULT, limit = 100, offset } = options;
 
 	const url = new URL('/trades', POLYMARKET_DATA_API_URL);
 	url.searchParams.set('filterType', 'CASH');
 	url.searchParams.set('filterAmount', String(minAmount));
 	url.searchParams.set('limit', String(limit));
+	if (offset !== undefined && offset > 0) {
+		url.searchParams.set('offset', String(offset));
+	}
 
 	const response = await fetch(url.toString(), {
 		headers: {

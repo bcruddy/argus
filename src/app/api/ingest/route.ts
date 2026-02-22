@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId } from '@/lib/polymarket';
-import { WHALE_THRESHOLD_DEFAULT } from '@/lib/constants';
+import {
+	WHALE_THRESHOLD_DEFAULT,
+	INGEST_MAX_DAYS_BACK,
+	INGEST_MIN_WHALE_TRADES,
+	INGEST_PAGE_SIZE,
+} from '@/lib/constants';
 
 interface MarketRow {
 	id: string;
@@ -75,67 +80,108 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 
 export async function POST() {
 	try {
-		const trades = await fetchWhaleTrades({ minAmount: WHALE_THRESHOLD_DEFAULT });
+		const cutoffMs = Date.now() - INGEST_MAX_DAYS_BACK * 24 * 60 * 60 * 1000;
+		const maxPages = 100; // Safety limit to prevent runaway fetching
+		let totalFetched = 0;
+		let totalNew = 0;
+		let offset = 0;
+		let reachedExistingData = false;
 
-		if (trades.length === 0) {
-			return NextResponse.json({ fetched: 0, new: 0 });
-		}
+		for (let page = 0; page < maxPages; page++) {
+			const trades = await fetchWhaleTrades({
+				minAmount: WHALE_THRESHOLD_DEFAULT,
+				limit: INGEST_PAGE_SIZE,
+				offset,
+			});
 
-		const hashes = trades.map((t) => t.transactionHash);
-		const existing = await sql`
-			SELECT transaction_hash FROM trades
-			WHERE transaction_hash = ANY(${hashes})
-		`;
-		const existingHashes = new Set(existing.map((r) => r.transaction_hash));
+			if (trades.length === 0) break;
+			totalFetched += trades.length;
 
-		const newTrades = trades.filter((t) => !existingHashes.has(t.transactionHash));
+			// Check if oldest trade on this page is beyond our cutoff
+			const oldestTrade = trades[trades.length - 1];
+			const oldestTimestampMs = oldestTrade.timestamp * 1000;
+			const pastCutoff = oldestTimestampMs < cutoffMs;
 
-		if (newTrades.length === 0) {
-			return NextResponse.json({ fetched: trades.length, new: 0 });
-		}
+			// Filter to trades within our time window
+			const tradesInWindow = pastCutoff
+				? trades.filter((t) => t.timestamp * 1000 >= cutoffMs)
+				: trades;
 
-		// Sync markets for all unique condition IDs in new trades
-		const uniqueConditionIds = [...new Set(newTrades.map((t) => t.conditionId))];
-		const conditionToMarketId = await syncMarketsForConditionIds(uniqueConditionIds);
+			if (tradesInWindow.length > 0) {
+				// Check for duplicates
+				const hashes = tradesInWindow.map((t) => t.transactionHash);
+				const existing = await sql`
+					SELECT transaction_hash FROM trades
+					WHERE transaction_hash = ANY(${hashes})
+				`;
+				const existingHashes = new Set(existing.map((r) => r.transaction_hash));
+				const newTrades = tradesInWindow.filter((t) => !existingHashes.has(t.transactionHash));
 
-		for (const trade of newTrades) {
-			const usdcValue = calculateUsdValue(trade.size, trade.price);
-			const tradeTimestamp = new Date(trade.timestamp * 1000);
-			const marketId = conditionToMarketId.get(trade.conditionId) || null;
+				// If every trade on this page is already in the DB, we've caught up
+				if (newTrades.length === 0) {
+					reachedExistingData = true;
+				}
 
-			await sql`
-				INSERT INTO trades (
-					transaction_hash,
-					market_id,
-					condition_id,
-					asset_id,
-					outcome,
-					proxy_wallet,
-					side,
-					size,
-					price,
-					usdc_value,
-					trade_timestamp,
-					is_whale,
-					detection_rule,
-					title
-				) VALUES (
-					${trade.transactionHash},
-					${marketId},
-					${trade.conditionId},
-					${trade.asset},
-					${trade.outcome || null},
-					${trade.proxyWallet},
-					${trade.side},
-					${trade.size},
-					${trade.price},
-					${usdcValue},
-					${tradeTimestamp},
-					true,
-					'threshold_250k',
-					${trade.title || null}
-				)
-			`;
+				if (newTrades.length > 0) {
+					// Sync markets for all unique condition IDs in new trades
+					const uniqueConditionIds = [...new Set(newTrades.map((t) => t.conditionId))];
+					const conditionToMarketId = await syncMarketsForConditionIds(uniqueConditionIds);
+
+					for (const trade of newTrades) {
+						const usdcValue = calculateUsdValue(trade.size, trade.price);
+						const tradeTimestamp = new Date(trade.timestamp * 1000);
+						const marketId = conditionToMarketId.get(trade.conditionId) || null;
+
+						await sql`
+							INSERT INTO trades (
+								transaction_hash,
+								market_id,
+								condition_id,
+								asset_id,
+								outcome,
+								proxy_wallet,
+								side,
+								size,
+								price,
+								usdc_value,
+								trade_timestamp,
+								is_whale,
+								detection_rule,
+								title
+							) VALUES (
+								${trade.transactionHash},
+								${marketId},
+								${trade.conditionId},
+								${trade.asset},
+								${trade.outcome || null},
+								${trade.proxyWallet},
+								${trade.side},
+								${trade.size},
+								${trade.price},
+								${usdcValue},
+								${tradeTimestamp},
+								true,
+								'threshold_250k',
+								${trade.title || null}
+							)
+						`;
+					}
+
+					totalNew += newTrades.length;
+				}
+			}
+
+			// Stop conditions:
+			// 1. Reached our time cutoff (364 days back)
+			if (pastCutoff) break;
+			// 2. Found enough new whale trades
+			if (totalNew >= INGEST_MIN_WHALE_TRADES) break;
+			// 3. Reached data we already have (all duplicates)
+			if (reachedExistingData) break;
+			// 4. API returned fewer results than requested (no more data)
+			if (trades.length < INGEST_PAGE_SIZE) break;
+
+			offset += INGEST_PAGE_SIZE;
 		}
 
 		// Backfill existing trades that don't have market_id (limit to 50 per request)
@@ -160,8 +206,8 @@ export async function POST() {
 		}
 
 		return NextResponse.json({
-			fetched: trades.length,
-			new: newTrades.length,
+			fetched: totalFetched,
+			new: totalNew,
 			backfilled: tradesWithoutMarket.length,
 		});
 	} catch (error) {

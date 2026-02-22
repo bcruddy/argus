@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
 
 		// Validate and parse query parameters with Zod
 		const parseResult = groupedTradesQuerySchema.safeParse({
-			category: searchParams.get('category'),
+			categories: searchParams.get('categories'),
 			event: searchParams.get('event'),
 			minAmount: searchParams.get('minAmount'),
 			wallet: searchParams.get('wallet'),
@@ -148,13 +148,15 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
-		const { category, event, minAmount, wallet, timeWindowHours, limit } = parseResult.data;
+		const { categories, event, minAmount, wallet, timeWindowHours, limit } = parseResult.data;
 
 		// Sanitize event search for LIKE query
 		const sanitizedEventPattern = event ? `%${sanitizeForLike(event)}%` : null;
 
 		// Calculate cutoff timestamp for time window filter
 		const cutoffTimestamp = new Date(Date.now() - timeWindowHours * 60 * 60 * 1000);
+
+		const categoriesParam = categories || null;
 
 		// Fetch all whale trades within the time window
 		const tradesResult = await sql`
@@ -178,7 +180,7 @@ export async function GET(request: NextRequest) {
 			LEFT JOIN markets m ON t.market_id = m.id
 			WHERE t.is_whale = true
 				AND t.trade_timestamp > ${cutoffTimestamp}
-				AND (${category}::text IS NULL OR m.tags ? ${category})
+				AND (${categoriesParam}::text IS NULL OR m.tags ?| string_to_array(${categoriesParam}, ','))
 				AND (${sanitizedEventPattern}::text IS NULL OR
 					LOWER(t.title) LIKE LOWER(${sanitizedEventPattern}) OR
 					LOWER(m.question) LIKE LOWER(${sanitizedEventPattern}))

@@ -5,6 +5,14 @@ export const POLYMARKET_GAMMA_API_URL = process.env.POLYMARKET_GAMMA_API_URL || 
 export const POLYMARKET_WS_URL =
 	process.env.POLYMARKET_WS_URL || 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
 
+// Doomscroll category filter - politics & geopolitics
+export const DOOMSCROLL_CATEGORIES = ['Geopolitics', 'Politics', 'Iran', 'Israel'];
+
+// Ingestion paging limits
+export const INGEST_MAX_DAYS_BACK = 364;
+export const INGEST_MIN_WHALE_TRADES = 10;
+export const INGEST_PAGE_SIZE = 500;
+
 // Whale detection thresholds
 export const WHALE_THRESHOLD_DEFAULT = Number(process.env.WHALE_THRESHOLD_DEFAULT || 250000);
 export const WHALE_THRESHOLD_NEAR_EXPIRY = Number(process.env.WHALE_THRESHOLD_NEAR_EXPIRY || 15000);
