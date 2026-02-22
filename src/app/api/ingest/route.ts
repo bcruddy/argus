@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId } from '@/lib/polymarket';
+import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, extractMarketTags } from '@/lib/polymarket';
 import {
 	WHALE_THRESHOLD_DEFAULT,
 	INGEST_MAX_DAYS_BACK,
@@ -37,8 +37,8 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 			const marketData = await fetchMarketByConditionId(conditionId);
 			if (!marketData) continue;
 
-			// Convert tags to JSONB array of labels for simpler filtering
-			const tagLabels = marketData.tags?.map((t) => t.label).filter(Boolean) || [];
+			// Extract tags from market or nested events
+			const tagLabels = extractMarketTags(marketData);
 
 			const insertResult = (await sql`
 				INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)

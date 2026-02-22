@@ -4,18 +4,28 @@ import { POLYMARKET_DATA_API_URL, POLYMARKET_GAMMA_API_URL, WHALE_THRESHOLD_DEFA
 
 const tradesResponseSchema = z.array(polymarketTradeSchema);
 
+// Schema for tag objects used in Gamma API responses
+const gammaTagSchema = z.object({
+	id: z.string().optional(),
+	label: z.string().optional(),
+	slug: z.string().optional(),
+});
+
+// Schema for nested event objects in Gamma API market responses
+const gammaEventSchema = z.object({
+	tags: z.array(gammaTagSchema).optional(),
+}).passthrough();
+
 // Schema for Polymarket Gamma API market response
+// Tags live on events nested inside markets, not directly on the market
 const gammaMarketSchema = z.object({
 	conditionId: z.string(),
 	slug: z.string().optional(),
 	question: z.string().optional(),
 	description: z.string().optional(),
 	image: z.string().optional(),
-	tags: z.array(z.object({
-		id: z.string().optional(),
-		label: z.string().optional(),
-		slug: z.string().optional(),
-	})).optional(),
+	tags: z.array(gammaTagSchema).optional(),
+	events: z.array(gammaEventSchema).optional(),
 	active: z.boolean().optional(),
 	closed: z.boolean().optional(),
 	endDate: z.string().optional(),
@@ -23,6 +33,22 @@ const gammaMarketSchema = z.object({
 });
 
 export type GammaMarket = z.infer<typeof gammaMarketSchema>;
+
+/** Extract tag labels from a Gamma market, checking nested events as fallback */
+export function extractMarketTags(market: GammaMarket): string[] {
+	// Try direct market tags first
+	const directTags = market.tags?.map((t) => t.label).filter(Boolean) as string[] | undefined;
+	if (directTags && directTags.length > 0) return directTags;
+
+	// Fall back to tags from nested events
+	const eventTags = market.events
+		?.flatMap((e) => e.tags ?? [])
+		.map((t) => t.label)
+		.filter(Boolean) as string[] | undefined;
+	if (eventTags && eventTags.length > 0) return [...new Set(eventTags)];
+
+	return [];
+}
 
 export interface FetchWhaleTradesOptions {
 	minAmount?: number;
