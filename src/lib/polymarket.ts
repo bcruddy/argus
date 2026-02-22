@@ -127,3 +127,34 @@ export async function fetchMarketByConditionId(conditionId: string): Promise<Gam
 		return null;
 	}
 }
+
+/**
+ * Fetch tags for a market by looking up its parent event via slug.
+ * The /events endpoint reliably returns tags, unlike /markets which
+ * may not include them.
+ */
+export async function fetchEventTagsBySlug(slug: string): Promise<string[]> {
+	try {
+		const url = new URL('/events', POLYMARKET_GAMMA_API_URL);
+		url.searchParams.set('slug', slug);
+
+		const response = await fetch(url.toString(), {
+			headers: { Accept: 'application/json' },
+		});
+
+		if (!response.ok) return [];
+
+		const data = await response.json();
+		if (!Array.isArray(data) || data.length === 0) return [];
+
+		const event = data[0];
+		const tags = event?.tags;
+		if (!Array.isArray(tags)) return [];
+
+		return tags
+			.map((t: { label?: string }) => t.label)
+			.filter(Boolean) as string[];
+	} catch {
+		return [];
+	}
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, extractMarketTags } from '@/lib/polymarket';
+import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId, extractMarketTags, fetchEventTagsBySlug } from '@/lib/polymarket';
 import {
 	WHALE_THRESHOLD_DEFAULT,
 	INGEST_MAX_DAYS_BACK,
@@ -13,65 +13,111 @@ interface MarketRow {
 	condition_id: string;
 }
 
+async function upsertMarket(conditionId: string, marketData: NonNullable<Awaited<ReturnType<typeof fetchMarketByConditionId>>>, tagLabels: string[]): Promise<string | null> {
+	const insertResult = (await sql`
+		INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)
+		VALUES (
+			${conditionId},
+			${marketData.slug || null},
+			${marketData.question || 'Unknown Market'},
+			${marketData.description || null},
+			${marketData.image || null},
+			${JSON.stringify(tagLabels)},
+			${marketData.active ?? true},
+			${marketData.closed ?? false},
+			${marketData.endDate ? new Date(marketData.endDate) : null},
+			${new Date()}
+		)
+		ON CONFLICT (condition_id) DO UPDATE SET
+			slug = COALESCE(EXCLUDED.slug, markets.slug),
+			question = COALESCE(EXCLUDED.question, markets.question),
+			description = COALESCE(EXCLUDED.description, markets.description),
+			image_url = COALESCE(EXCLUDED.image_url, markets.image_url),
+			tags = EXCLUDED.tags,
+			is_active = EXCLUDED.is_active,
+			is_closed = EXCLUDED.is_closed,
+			end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
+			last_synced_at = EXCLUDED.last_synced_at
+		RETURNING id
+	`) as { id: string }[];
+
+	return insertResult.length > 0 ? insertResult[0].id : null;
+}
+
+interface ExistingMarketRow extends MarketRow {
+	slug: string | null;
+	tags: string[] | null;
+}
+
 async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<string, string>> {
 	const conditionToMarketId = new Map<string, string>();
 
 	if (conditionIds.length === 0) return conditionToMarketId;
 
-	// Check which markets already exist
+	// Check which markets already exist, including their tag state
 	const existingMarkets = (await sql`
-		SELECT id, condition_id FROM markets
+		SELECT id, condition_id, slug, tags FROM markets
 		WHERE condition_id = ANY(${conditionIds})
-	`) as MarketRow[];
+	`) as ExistingMarketRow[];
 
+	// Separate markets with tags from those needing tag backfill
+	const needsTagBackfill: ExistingMarketRow[] = [];
 	for (const market of existingMarkets) {
 		conditionToMarketId.set(market.condition_id, market.id);
+		const tags = market.tags;
+		const hasTags = Array.isArray(tags) && tags.length > 0;
+		if (!hasTags) {
+			needsTagBackfill.push(market);
+		}
 	}
 
-	// Find condition IDs that don't have markets yet
+	// Find condition IDs that don't have markets at all
 	const missingConditionIds = conditionIds.filter((id) => !conditionToMarketId.has(id));
 
-	// Fetch and insert missing markets from Polymarket Gamma API
+	// Fetch and insert brand new markets from Polymarket Gamma API
 	for (const conditionId of missingConditionIds) {
 		try {
 			const marketData = await fetchMarketByConditionId(conditionId);
 			if (!marketData) continue;
 
-			// Extract tags from market or nested events
-			const tagLabels = extractMarketTags(marketData);
+			// Extract tags: try market/nested events first, then events endpoint
+			let tagLabels = extractMarketTags(marketData);
+			if (tagLabels.length === 0 && marketData.slug) {
+				tagLabels = await fetchEventTagsBySlug(marketData.slug);
+			}
 
-			const insertResult = (await sql`
-				INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)
-				VALUES (
-					${conditionId},
-					${marketData.slug || null},
-					${marketData.question || 'Unknown Market'},
-					${marketData.description || null},
-					${marketData.image || null},
-					${JSON.stringify(tagLabels)},
-					${marketData.active ?? true},
-					${marketData.closed ?? false},
-					${marketData.endDate ? new Date(marketData.endDate) : null},
-					${new Date()}
-				)
-				ON CONFLICT (condition_id) DO UPDATE SET
-					slug = COALESCE(EXCLUDED.slug, markets.slug),
-					question = COALESCE(EXCLUDED.question, markets.question),
-					description = COALESCE(EXCLUDED.description, markets.description),
-					image_url = COALESCE(EXCLUDED.image_url, markets.image_url),
-					tags = EXCLUDED.tags,
-					is_active = EXCLUDED.is_active,
-					is_closed = EXCLUDED.is_closed,
-					end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
-					last_synced_at = EXCLUDED.last_synced_at
-				RETURNING id
-			`) as { id: string }[];
-
-			if (insertResult.length > 0) {
-				conditionToMarketId.set(conditionId, insertResult[0].id);
+			const id = await upsertMarket(conditionId, marketData, tagLabels);
+			if (id) {
+				conditionToMarketId.set(conditionId, id);
 			}
 		} catch (error) {
 			console.error(`Failed to sync market for condition ${conditionId}:`, error);
+		}
+	}
+
+	// Backfill tags for existing markets that have empty tags
+	for (const market of needsTagBackfill) {
+		try {
+			const marketData = await fetchMarketByConditionId(market.condition_id);
+			if (!marketData) continue;
+
+			let tagLabels = extractMarketTags(marketData);
+
+			// If /markets didn't return tags, try the /events endpoint via slug
+			const slug = marketData.slug || market.slug;
+			if (tagLabels.length === 0 && slug) {
+				tagLabels = await fetchEventTagsBySlug(slug);
+			}
+
+			if (tagLabels.length > 0) {
+				await sql`
+					UPDATE markets
+					SET tags = ${JSON.stringify(tagLabels)}, last_synced_at = ${new Date()}
+					WHERE id = ${market.id}
+				`;
+			}
+		} catch (error) {
+			console.error(`Failed to backfill tags for market ${market.condition_id}:`, error);
 		}
 	}
 
