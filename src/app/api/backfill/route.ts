@@ -4,26 +4,26 @@ import { fetchMarketByConditionId } from '@/lib/polymarket';
 
 export async function POST() {
 	try {
+		// Re-fetch ALL markets — existing tags from gamma API are wrong
 		const marketsToBackfill = (await sql`
 			SELECT condition_id FROM markets
-			WHERE tags IS NULL OR tags = '[]'::jsonb OR jsonb_array_length(tags) = 0
 		`) as { condition_id: string }[];
 
 		let updated = 0;
 		let failed = 0;
-		let noCategory = 0;
+		let noTags = 0;
 
 		for (const market of marketsToBackfill) {
 			try {
 				const marketData = await fetchMarketByConditionId(market.condition_id);
-				if (!marketData?.category) {
-					noCategory++;
+				if (!marketData || marketData.tags.length === 0) {
+					noTags++;
 					continue;
 				}
 
 				await sql`
 					UPDATE markets
-					SET tags = ${JSON.stringify([marketData.category])}::jsonb, last_synced_at = ${new Date()}
+					SET tags = ${JSON.stringify(marketData.tags)}::jsonb, last_synced_at = ${new Date()}
 					WHERE condition_id = ${market.condition_id}
 				`;
 				updated++;
@@ -31,12 +31,15 @@ export async function POST() {
 				console.error(`[backfill] failed for ${market.condition_id}:`, error);
 				failed++;
 			}
+
+			// be polite to polymarket
+			await new Promise(r => setTimeout(r, 100));
 		}
 
 		return NextResponse.json({
 			total: marketsToBackfill.length,
 			updated,
-			noCategory,
+			noTags,
 			failed,
 		});
 	} catch (error) {

@@ -32,29 +32,27 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 			const marketData = await fetchMarketByConditionId(conditionId);
 			if (!marketData) continue;
 
-			// The Gamma API returns a "category" field directly on the market
-			const tags = marketData.category ? [marketData.category] : [];
-			console.log(`[ingest] Market ${conditionId}: category="${marketData.category}", tags=${JSON.stringify(tags)}`);
+			const tags = marketData.tags;
 
 			const insertResult = (await sql`
 				INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)
 				VALUES (
 					${conditionId},
-					${marketData.slug || null},
+					${marketData.market_slug || null},
 					${marketData.question || 'Unknown Market'},
 					${marketData.description || null},
-					${marketData.image || null},
+					${marketData.icon || null},
 					${JSON.stringify(tags)}::jsonb,
 					${marketData.active ?? true},
 					${marketData.closed ?? false},
-					${marketData.endDate ? new Date(marketData.endDate) : null},
+					${marketData.end_date_iso ? new Date(marketData.end_date_iso) : null},
 					${new Date()}
 				)
 				ON CONFLICT (condition_id) DO UPDATE SET
 					slug = COALESCE(EXCLUDED.slug, markets.slug),
 					question = COALESCE(EXCLUDED.question, markets.question),
 					description = COALESCE(EXCLUDED.description, markets.description),
-					tags = CASE WHEN jsonb_array_length(markets.tags) = 0 THEN EXCLUDED.tags ELSE markets.tags END,
+					tags = EXCLUDED.tags,
 					is_active = EXCLUDED.is_active,
 					is_closed = EXCLUDED.is_closed,
 					end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
@@ -159,7 +157,7 @@ export async function POST() {
 			}
 		}
 
-		// Backfill tags for existing markets that have empty tags (re-fetch from Gamma API)
+		// Backfill tags for existing markets that have empty tags (re-fetch from CLOB API)
 		const marketsWithEmptyTags = (await sql`
 			SELECT condition_id FROM markets
 			WHERE tags IS NULL OR tags = '[]'::jsonb OR jsonb_array_length(tags) = 0
@@ -170,12 +168,11 @@ export async function POST() {
 		for (const market of marketsWithEmptyTags) {
 			try {
 				const marketData = await fetchMarketByConditionId(market.condition_id);
-				if (!marketData?.category) continue;
+				if (!marketData || marketData.tags.length === 0) continue;
 
-				console.log(`[ingest] Backfill tags for ${market.condition_id}: category="${marketData.category}"`);
 				await sql`
 					UPDATE markets
-					SET tags = ${JSON.stringify([marketData.category])}::jsonb, last_synced_at = ${new Date()}
+					SET tags = ${JSON.stringify(marketData.tags)}::jsonb, last_synced_at = ${new Date()}
 					WHERE condition_id = ${market.condition_id}
 				`;
 				tagsBackfilled++;
