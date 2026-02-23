@@ -1,28 +1,51 @@
 import { z } from 'zod';
 import { polymarketTradeSchema, type PolymarketTrade } from '@/schemas/trade';
-import { POLYMARKET_DATA_API_URL, POLYMARKET_GAMMA_API_URL, WHALE_THRESHOLD_DEFAULT } from './constants';
+import { POLYMARKET_DATA_API_URL, POLYMARKET_CLOB_API_URL, WHALE_THRESHOLD_DEFAULT } from './constants';
 
 const tradesResponseSchema = z.array(polymarketTradeSchema);
 
-// Schema for Polymarket Gamma API market response
-const gammaMarketSchema = z.object({
-	conditionId: z.string(),
-	slug: z.string().optional(),
+// Schema for Polymarket CLOB API market response
+const clobMarketSchema = z.object({
+	condition_id: z.string(),
+	market_slug: z.string().optional(),
 	question: z.string().optional(),
 	description: z.string().optional(),
-	image: z.string().optional(),
-	tags: z.array(z.object({
-		id: z.string().optional(),
-		label: z.string().optional(),
-		slug: z.string().optional(),
-	})).optional(),
+	icon: z.string().optional(),
+	tags: z.array(z.string()).default([]),
 	active: z.boolean().optional(),
 	closed: z.boolean().optional(),
-	endDate: z.string().optional(),
-	closedTime: z.string().optional(),
-});
+	end_date_iso: z.string().optional(),
+}).passthrough();
 
-export type GammaMarket = z.infer<typeof gammaMarketSchema>;
+export type ClobMarket = z.infer<typeof clobMarketSchema>;
+
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const BASE_DELAY_MS = 1000;
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+		try {
+			const response = await fetch(url, {
+				...init,
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+			});
+
+			if (response.ok) return response;
+
+			if (!RETRYABLE_STATUSES.has(response.status) || attempt === MAX_ATTEMPTS - 1) {
+				throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
+			}
+
+			await new Promise(r => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+		} catch (error) {
+			if (attempt === MAX_ATTEMPTS - 1) throw error;
+			await new Promise(r => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+		}
+	}
+	throw new Error('fetchWithRetry: exhausted attempts');
+}
 
 export interface FetchWhaleTradesOptions {
 	minAmount?: number;
@@ -37,15 +60,11 @@ export async function fetchWhaleTrades(options: FetchWhaleTradesOptions = {}): P
 	url.searchParams.set('filterAmount', String(minAmount));
 	url.searchParams.set('limit', String(limit));
 
-	const response = await fetch(url.toString(), {
+	const response = await fetchWithRetry(url.toString(), {
 		headers: {
 			Accept: 'application/json',
 		},
 	});
-
-	if (!response.ok) {
-		throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
-	}
 
 	const data = await response.json();
 	const parsed = tradesResponseSchema.safeParse(data);
@@ -62,30 +81,19 @@ export function calculateUsdValue(size: number, price: number): number {
 	return size * price;
 }
 
-export async function fetchMarketByConditionId(conditionId: string): Promise<GammaMarket | null> {
+export async function fetchMarketByConditionId(conditionId: string): Promise<ClobMarket | null> {
 	try {
-		const url = new URL('/markets', POLYMARKET_GAMMA_API_URL);
-		url.searchParams.set('condition_id', conditionId);
+		const url = `${POLYMARKET_CLOB_API_URL}/markets/${encodeURIComponent(conditionId)}`;
 
-		const response = await fetch(url.toString(), {
+		const response = await fetchWithRetry(url, {
 			headers: {
 				Accept: 'application/json',
 			},
 		});
 
-		if (!response.ok) {
-			console.error(`Gamma API error: ${response.status} ${response.statusText}`);
-			return null;
-		}
-
 		const data = await response.json();
 
-		// Gamma API returns an array of markets for the condition
-		if (!Array.isArray(data) || data.length === 0) {
-			return null;
-		}
-
-		const parsed = gammaMarketSchema.safeParse(data[0]);
+		const parsed = clobMarketSchema.safeParse(data);
 		if (!parsed.success) {
 			console.error('Failed to parse market data:', parsed.error.flatten());
 			return null;
@@ -93,7 +101,7 @@ export async function fetchMarketByConditionId(conditionId: string): Promise<Gam
 
 		return parsed.data;
 	} catch (error) {
-		console.error('Error fetching market from Gamma API:', error);
+		console.error('Error fetching market from CLOB API:', error);
 		return null;
 	}
 }

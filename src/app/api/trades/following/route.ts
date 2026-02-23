@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 				t.trade_timestamp, t.is_whale, t.detection_rule,
 				COALESCE(t.title, m.question) as title,
 				t.created_at,
-				m.tags->0 as category,
+				m.tags->>0 as category,
 				fw.label as wallet_label
 			FROM trades t
 			LEFT JOIN markets m ON t.market_id = m.id

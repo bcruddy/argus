@@ -16,7 +16,7 @@ export const tradesQuerySchema = z.object({
 	category: z
 		.string()
 		.max(100)
-		.regex(/^[a-zA-Z0-9\s\-_]+$/, 'Invalid category format')
+		.regex(/^[a-zA-Z0-9\s\-_,\/&'()]+$/, 'Invalid category format')
 		.optional()
 		.nullable(),
 	event: z
@@ -43,7 +43,7 @@ export const groupedTradesQuerySchema = z.object({
 	category: z
 		.string()
 		.max(100)
-		.regex(/^[a-zA-Z0-9\s\-_]+$/, 'Invalid category format')
+		.regex(/^[a-zA-Z0-9\s\-_,\/&'()]+$/, 'Invalid category format')
 		.optional()
 		.nullable(),
 	event: z

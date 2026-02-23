@@ -32,28 +32,26 @@ async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<s
 			const marketData = await fetchMarketByConditionId(conditionId);
 			if (!marketData) continue;
 
-			// Convert tags to JSONB array of labels for simpler filtering
-			const tagLabels = marketData.tags?.map((t) => t.label).filter(Boolean) || [];
+			const tags = marketData.tags;
 
 			const insertResult = (await sql`
 				INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)
 				VALUES (
 					${conditionId},
-					${marketData.slug || null},
+					${marketData.market_slug || null},
 					${marketData.question || 'Unknown Market'},
 					${marketData.description || null},
-					${marketData.image || null},
-					${JSON.stringify(tagLabels)},
+					${marketData.icon || null},
+					${JSON.stringify(tags)}::jsonb,
 					${marketData.active ?? true},
 					${marketData.closed ?? false},
-					${marketData.endDate ? new Date(marketData.endDate) : null},
+					${marketData.end_date_iso ? new Date(marketData.end_date_iso) : null},
 					${new Date()}
 				)
 				ON CONFLICT (condition_id) DO UPDATE SET
 					slug = COALESCE(EXCLUDED.slug, markets.slug),
 					question = COALESCE(EXCLUDED.question, markets.question),
 					description = COALESCE(EXCLUDED.description, markets.description),
-					image_url = COALESCE(EXCLUDED.image_url, markets.image_url),
 					tags = EXCLUDED.tags,
 					is_active = EXCLUDED.is_active,
 					is_closed = EXCLUDED.is_closed,
@@ -159,10 +157,37 @@ export async function POST() {
 			}
 		}
 
+		// Backfill tags for existing markets that have empty tags (re-fetch from CLOB API)
+		const marketsWithEmptyTags = (await sql`
+			SELECT condition_id FROM markets
+			WHERE tags IS NULL OR tags = '[]'::jsonb OR jsonb_array_length(tags) = 0
+			LIMIT 30
+		`) as { condition_id: string }[];
+
+		let tagsBackfilled = 0;
+		for (const market of marketsWithEmptyTags) {
+			try {
+				const marketData = await fetchMarketByConditionId(market.condition_id);
+				if (!marketData || marketData.tags.length === 0) continue;
+
+				await sql`
+					UPDATE markets
+					SET tags = ${JSON.stringify(marketData.tags)}::jsonb, last_synced_at = ${new Date()}
+					WHERE condition_id = ${market.condition_id}
+				`;
+				tagsBackfilled++;
+			} catch (error) {
+				console.error(`Failed to backfill tags for ${market.condition_id}:`, error);
+			}
+		}
+
+		console.log(`[ingest] Done: fetched=${trades.length}, new=${newTrades.length}, backfilled=${tradesWithoutMarket.length}, tagsBackfilled=${tagsBackfilled}`);
+
 		return NextResponse.json({
 			fetched: trades.length,
 			new: newTrades.length,
 			backfilled: tradesWithoutMarket.length,
+			tagsBackfilled,
 		});
 	} catch (error) {
 		console.error('Ingestion error:', error);

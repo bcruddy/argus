@@ -180,7 +180,7 @@ export async function GET(request: NextRequest) {
 				t.usdc_value,
 				t.trade_timestamp,
 				COALESCE(t.title, m.question) as title,
-				m.tags->0 as category,
+				m.tags->>0 as category,
 				date_trunc('day', t.trade_timestamp) as time_bucket,
 				fw.label as wallet_label
 			FROM trades t
