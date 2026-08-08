@@ -44,13 +44,23 @@ export function WhaleSplash({ amount, onDismiss }: WhaleSplashProps) {
 		return () => clearTimeout(timer);
 	}, []);
 
+	// Keyboard escape hatch, since the only pointer target is the bubble.
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') dismissRef.current();
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, []);
+
 	return (
+		// The overlay stays pointer-events-none for its whole life. It used to flip to
+		// 'auto' over inset-0 z-50, which ate every click on the page for ~4.3 seconds;
+		// only the message bubble is interactive now.
 		<div
-			className={`fixed inset-0 z-50 pointer-events-none flex items-end justify-center overflow-hidden transition-opacity duration-300 ${
+			className={`pointer-events-none fixed inset-0 z-50 flex items-end justify-center overflow-hidden transition-opacity duration-300 ${
 				isVisible ? 'opacity-100' : 'opacity-0'
 			}`}
-			onClick={handleDismiss}
-			style={{ pointerEvents: isVisible ? 'auto' : 'none' }}
 		>
 			{/* Water splash background */}
 			<div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-blue-500/20 to-transparent whale-wave" />
@@ -76,6 +86,7 @@ export function WhaleSplash({ amount, onDismiss }: WhaleSplashProps) {
 					viewBox="0 0 120 80"
 					className="w-32 h-24 md:w-48 md:h-36 drop-shadow-lg"
 					fill="none"
+					aria-hidden="true"
 					xmlns="http://www.w3.org/2000/svg"
 				>
 					{/* Whale body */}
@@ -100,7 +111,7 @@ export function WhaleSplash({ amount, onDismiss }: WhaleSplashProps) {
 						rx="12"
 						ry="5"
 						transform="rotate(-20 45 55)"
-						className="fill-slate-500 dark:fill-slate-350"
+						className="fill-slate-500 dark:fill-slate-300"
 					/>
 
 					{/* Eye */}
@@ -134,17 +145,22 @@ export function WhaleSplash({ amount, onDismiss }: WhaleSplashProps) {
 				</svg>
 			</div>
 
-			{/* Message bubble */}
+			{/* Message bubble — the one clickable thing in the overlay */}
 			<div
 				className={`absolute bottom-48 md:bottom-56 left-1/2 -translate-x-1/2 whale-message ${
 					isVisible ? 'whale-message-active' : ''
 				}`}
 			>
-				<div className="bg-card border border-border rounded-xl px-4 py-3 md:px-6 md:py-4 shadow-xl text-center">
+				<button
+					type="button"
+					onClick={handleDismiss}
+					aria-label={`Mega whale trade of ${formatUsd(amount)} — dismiss`}
+					className="pointer-events-auto bg-card border border-border rounded-xl px-4 py-3 md:px-6 md:py-4 shadow-xl text-center cursor-pointer"
+				>
 					<div className="text-2xl md:text-3xl mb-1">MEGA WHALE!</div>
 					<div className="text-xl md:text-2xl font-bold font-mono text-primary">{formatUsd(amount)}</div>
-					<div className="text-xs md:text-sm text-muted-foreground mt-1">Click anywhere to dismiss</div>
-				</div>
+					<div className="text-xs md:text-sm text-muted-foreground mt-1">Click or press Esc to dismiss</div>
+				</button>
 			</div>
 		</div>
 	);

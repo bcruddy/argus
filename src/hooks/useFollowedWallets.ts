@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { followedWalletsResponseSchema, parseResponse } from '@/schemas/api';
 import type { FollowedWallet, FollowedWalletsResponse } from '@/schemas/api';
 
@@ -40,16 +40,25 @@ async function unfollowWallet(walletAddress: string): Promise<void> {
 	}
 }
 
+const followedWalletsKey = ['followedWallets'] as const;
+
+// The 401-aware retry policy is a query-client default now (src/lib/queryClient.ts).
 export function useFollowedWallets() {
 	return useQuery({
-		queryKey: ['followedWallets'],
+		queryKey: followedWalletsKey,
 		queryFn: fetchFollowedWallets,
-		retry: (failureCount, error) => {
-			// Don't retry on auth errors
-			if (error.message === 'Unauthorized') return false;
-			return failureCount < 3;
-		},
 	});
+}
+
+// Both mutations write the cache before the request leaves, so the star flips on the
+// click instead of a round trip later, and roll back on failure instead of leaving the
+// UI asserting something the server rejected.
+type FollowContext = { previous: FollowedWalletsResponse | undefined };
+
+async function snapshotFollowedWallets(queryClient: QueryClient): Promise<FollowContext> {
+	// In-flight refetches would otherwise land after the optimistic write and undo it.
+	await queryClient.cancelQueries({ queryKey: followedWalletsKey });
+	return { previous: queryClient.getQueryData<FollowedWalletsResponse>(followedWalletsKey) };
 }
 
 export function useFollowWallet() {
@@ -58,8 +67,28 @@ export function useFollowWallet() {
 	return useMutation({
 		mutationFn: ({ walletAddress, label }: { walletAddress: string; label?: string }) =>
 			followWallet(walletAddress, label),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['followedWallets'] });
+		onMutate: async ({ walletAddress, label }) => {
+			const context = await snapshotFollowedWallets(queryClient);
+			queryClient.setQueryData<FollowedWalletsResponse>(followedWalletsKey, (current) => {
+				const wallets = current?.wallets ?? [];
+				const normalized = walletAddress.toLowerCase();
+				if (wallets.some((w) => w.walletAddress.toLowerCase() === normalized)) return current;
+				// Placeholder id/createdAt: the real row arrives with the onSettled invalidate.
+				const optimistic: FollowedWallet = {
+					id: `optimistic-${normalized}`,
+					walletAddress: normalized,
+					label: label ?? null,
+					createdAt: new Date().toISOString(),
+				};
+				return { ...current, wallets: [...wallets, optimistic] };
+			});
+			return context;
+		},
+		onError: (_error, _variables, context) => {
+			queryClient.setQueryData(followedWalletsKey, context?.previous);
+		},
+		onSettled: () => {
+			queryClient.invalidateQueries({ queryKey: followedWalletsKey });
 		},
 	});
 }
@@ -69,8 +98,20 @@ export function useUnfollowWallet() {
 
 	return useMutation({
 		mutationFn: (walletAddress: string) => unfollowWallet(walletAddress),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['followedWallets'] });
+		onMutate: async (walletAddress) => {
+			const context = await snapshotFollowedWallets(queryClient);
+			queryClient.setQueryData<FollowedWalletsResponse>(followedWalletsKey, (current) => {
+				if (!current) return current;
+				const normalized = walletAddress.toLowerCase();
+				return { ...current, wallets: current.wallets.filter((w) => w.walletAddress.toLowerCase() !== normalized) };
+			});
+			return context;
+		},
+		onError: (_error, _variables, context) => {
+			queryClient.setQueryData(followedWalletsKey, context?.previous);
+		},
+		onSettled: () => {
+			queryClient.invalidateQueries({ queryKey: followedWalletsKey });
 		},
 	});
 }

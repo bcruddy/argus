@@ -2,12 +2,15 @@
 
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { DEFAULT_MIN_AMOUNT } from '@/lib/queryKeys';
 
 export type SortField = 'time' | 'amount';
 export type SortOrder = 'asc' | 'desc';
 
 const THRESHOLD_STORAGE_KEY = 'argus-min-amount';
-const DEFAULT_THRESHOLD = 250000;
+// Shared with the server prefetch: a different default there would key a different
+// query and the hydrated page would silently refetch.
+const DEFAULT_THRESHOLD = DEFAULT_MIN_AMOUNT;
 
 export interface TradesFilters {
 	sort: SortField;
@@ -25,16 +28,33 @@ function getStoredThreshold(): number {
 	return isNaN(parsed) ? DEFAULT_THRESHOLD : parsed;
 }
 
+// Same-tab subscribers. Do NOT notify same-tab listeners by dispatching a synthetic
+// StorageEvent: its newValue is null, which reads as "this key was deleted in another
+// tab", and at least one third-party storage listener (Clerk's cross-tab sync)
+// mirrors that implied deletion by REMOVING the key — verified in-browser: any key
+// named in a synthetic storage event vanished within 100ms of being written. Real
+// cross-tab storage events are still subscribed below; they carry real newValues.
+const thresholdListeners = new Set<() => void>();
+
 function setStoredThreshold(value: number): void {
 	if (typeof window === 'undefined') return;
 	localStorage.setItem(THRESHOLD_STORAGE_KEY, String(value));
+	thresholdListeners.forEach((listener) => listener());
 }
 
 // Custom hook for localStorage with useSyncExternalStore
 function useLocalStorageThreshold(): [number, (value: number) => void, boolean] {
 	const subscribe = useCallback((callback: () => void) => {
-		window.addEventListener('storage', callback);
-		return () => window.removeEventListener('storage', callback);
+		thresholdListeners.add(callback);
+		// Real storage events from other tabs (key === null means storage.clear()).
+		const onStorage = (event: StorageEvent) => {
+			if (event.key === THRESHOLD_STORAGE_KEY || event.key === null) callback();
+		};
+		window.addEventListener('storage', onStorage);
+		return () => {
+			thresholdListeners.delete(callback);
+			window.removeEventListener('storage', onStorage);
+		};
 	}, []);
 
 	const getSnapshot = useCallback(() => getStoredThreshold(), []);
@@ -44,8 +64,6 @@ function useLocalStorageThreshold(): [number, (value: number) => void, boolean] 
 
 	const setValue = useCallback((newValue: number) => {
 		setStoredThreshold(newValue);
-		// Trigger a storage event to update subscribers
-		window.dispatchEvent(new StorageEvent('storage', { key: THRESHOLD_STORAGE_KEY }));
 	}, []);
 
 	// isHydrated is true when we're on the client

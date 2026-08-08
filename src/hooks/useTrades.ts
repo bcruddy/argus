@@ -2,6 +2,7 @@
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { MAX_TRADES_OFFSET, parseResponse, tradesResponseSchema } from '@/schemas/api';
+import { infiniteTradesQueryKey, tradesQueryKey } from '@/lib/queryKeys';
 import type { TradesFilters } from './useTradesFilters';
 
 export interface Trade {
@@ -46,7 +47,7 @@ async function fetchTrades(filters: TradesFilters, limit: number, offset: number
 
 export function useTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
 	return useQuery({
-		queryKey: ['trades', filters, limit],
+		queryKey: tradesQueryKey(filters, limit),
 		queryFn: () => fetchTrades(filters, limit),
 		enabled,
 	});
@@ -54,7 +55,7 @@ export function useTrades(filters: TradesFilters, limit: number = 50, enabled: b
 
 export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20, enabled: boolean = true) {
 	return useInfiniteQuery({
-		queryKey: ['infiniteTrades', filters, pageSize],
+		queryKey: infiniteTradesQueryKey(filters, pageSize),
 		queryFn: ({ pageParam = 0 }) => fetchTrades(filters, pageSize, pageParam),
 		initialPageParam: 0,
 		getNextPageParam: (lastPage) => {
