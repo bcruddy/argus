@@ -2,12 +2,12 @@
 	"dev": {
 		"driver": "pg",
 		"connectionString": { "ENV": "DATABASE_URL" },
-		"ssl": { "rejectUnauthorized": false }
+		"ssl": true
 	},
 	"production": {
 		"driver": "pg",
 		"connectionString": { "ENV": "DATABASE_URL" },
-		"ssl": { "rejectUnauthorized": false }
+		"ssl": true
 	},
 	"sql-file": true,
 	"migrations-dir": "./migrations"
