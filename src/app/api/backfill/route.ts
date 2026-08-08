@@ -1,8 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { fetchMarketByConditionId } from '@/lib/polymarket';
+import { isAuthorizedCron } from '@/lib/cronAuth';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+	// Operator endpoint: requires CRON_SECRET, not just a user session. Any
+	// signed-up user being able to trigger a full-table external-fetch loop
+	// was a HIGH finding in docs/audit-2026-08-07.md.
+	if (!isAuthorizedCron(request)) {
+		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
 	try {
 		// Re-fetch ALL markets — existing tags from gamma API are wrong
 		const marketsToBackfill = (await sql`
@@ -33,7 +41,7 @@ export async function POST() {
 			}
 
 			// be polite to polymarket
-			await new Promise(r => setTimeout(r, 100));
+			await new Promise((r) => setTimeout(r, 100));
 		}
 
 		return NextResponse.json({
