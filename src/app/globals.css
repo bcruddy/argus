@@ -82,6 +82,9 @@
 }
 
 .dark {
+	/* layout.tsx hardcodes class="dark" on <html>, so the UA has to be told the page is
+	   dark too — otherwise scrollbars, autofill and native controls render light. */
+	color-scheme: dark;
 	--background: oklch(0.145 0 0);
 	--foreground: oklch(0.985 0 0);
 	--card: oklch(0.205 0 0);
@@ -229,4 +232,27 @@
 
 .whale-message-active {
 	animation: message-pop 0.5s ease-out 0.4s forwards;
+}
+
+/* TradesPage does not mount WhaleSplash at all when this matches; this is the backstop
+   for anything that renders these classes anyway. Elements land in their finished
+   position rather than their (invisible, off-screen) start frame. */
+@media (prefers-reduced-motion: reduce) {
+	.whale-breach,
+	.whale-breach-active,
+	.splash-droplet,
+	.whale-wave,
+	.whale-spout,
+	.whale-message,
+	.whale-message-active {
+		animation: none;
+		transition: none;
+	}
+	.whale-breach {
+		transform: none;
+	}
+	.whale-message {
+		transform: translateX(-50%);
+		opacity: 1;
+	}
 }

@@ -8,6 +8,7 @@ import {
 	tradesResponseSchema,
 	type GroupedTradesResponse,
 } from '@/schemas/api';
+import { followingTradesQueryKey, infiniteFollowingTradesQueryKey } from '@/lib/queryKeys';
 import type { TradesFilters } from './useTradesFilters';
 import type { Trade } from './useTrades';
 
@@ -44,23 +45,19 @@ async function fetchFollowingTrades(
 	return parseResponse(tradesResponseSchema, await res.json(), '/api/trades/following');
 }
 
-function retryUnlessUnauthorized(failureCount: number, error: Error) {
-	if (error.message === 'Unauthorized') return false;
-	return failureCount < 3;
-}
-
+// The 401-aware retry policy is a query-client default now (src/lib/queryClient.ts),
+// so these hooks carry no override.
 export function useFollowingTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
 	return useQuery({
-		queryKey: ['followingTrades', filters, limit],
+		queryKey: followingTradesQueryKey(filters, limit),
 		queryFn: () => fetchFollowingTrades(filters, limit),
-		retry: retryUnlessUnauthorized,
 		enabled,
 	});
 }
 
 export function useInfiniteFollowingTrades(filters: TradesFilters, pageSize: number = 20, enabled: boolean = true) {
 	return useInfiniteQuery({
-		queryKey: ['infiniteFollowingTrades', filters, pageSize],
+		queryKey: infiniteFollowingTradesQueryKey(filters, pageSize),
 		queryFn: ({ pageParam = 0 }) => fetchFollowingTrades(filters, pageSize, pageParam),
 		initialPageParam: 0,
 		getNextPageParam: (lastPage) => {
@@ -70,7 +67,6 @@ export function useInfiniteFollowingTrades(filters: TradesFilters, pageSize: num
 			if (nextOffset > MAX_TRADES_OFFSET) return undefined;
 			return nextOffset;
 		},
-		retry: retryUnlessUnauthorized,
 		enabled,
 	});
 }
@@ -118,7 +114,6 @@ export function useGroupedFollowingTrades(
 	return useQuery({
 		queryKey: ['groupedFollowingTrades', groupedFilters, limit],
 		queryFn: () => fetchGroupedFollowingTrades(groupedFilters, limit),
-		retry: retryUnlessUnauthorized,
 		enabled,
 	});
 }
