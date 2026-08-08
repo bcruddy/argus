@@ -242,15 +242,26 @@ export const groupedTradesResponseSchema = z.looseObject({
 	}),
 });
 
+const followedWalletSchema = z.looseObject({
+	id: z.string(),
+	walletAddress: z.string(),
+	label: z.string().nullable(),
+	createdAt: z.string(),
+});
+
 export const followedWalletsResponseSchema = z.looseObject({
-	wallets: z.array(
-		z.looseObject({
-			id: z.string(),
-			walletAddress: z.string(),
-			label: z.string().nullable(),
-			createdAt: z.string(),
-		}),
-	),
+	wallets: z.array(followedWalletSchema),
+});
+
+// POST /api/wallets/followed returns the single row it wrote.
+export const followWalletResponseSchema = z.looseObject({
+	wallet: followedWalletSchema,
+});
+
+// Every route's failure body. Parsed rather than trusted so a 500 that returns HTML
+// (or nothing) surfaces the caller's fallback message instead of `undefined`.
+export const apiErrorSchema = z.looseObject({
+	error: z.string(),
 });
 
 export const filtersResponseSchema = z.looseObject({

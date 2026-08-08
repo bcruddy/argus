@@ -30,6 +30,17 @@ export interface TradesResponse {
 	offset: number;
 }
 
+// getNextPageParam for every offset-paged trades feed. The API rejects offsets past
+// MAX_TRADES_OFFSET, so stop at the cap and render end-of-list instead of walking the
+// user into a 400. Exported (and unit-tested) because both /api/trades and
+// /api/trades/following page this way and the two copies had to agree.
+export function nextOffset(lastPage: { hasMore: boolean; offset: number }, pageSize: number): number | undefined {
+	if (!lastPage.hasMore) return undefined;
+	const next = lastPage.offset + pageSize;
+	if (next > MAX_TRADES_OFFSET) return undefined;
+	return next;
+}
+
 async function fetchTrades(filters: TradesFilters, limit: number, offset: number = 0): Promise<TradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
@@ -58,14 +69,7 @@ export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20,
 		queryKey: infiniteTradesQueryKey(filters, pageSize),
 		queryFn: ({ pageParam = 0 }) => fetchTrades(filters, pageSize, pageParam),
 		initialPageParam: 0,
-		getNextPageParam: (lastPage) => {
-			if (!lastPage.hasMore) return undefined;
-			const nextOffset = lastPage.offset + pageSize;
-			// The API rejects offsets past its cap, so stop at the cap and render
-			// end-of-list instead of walking the user into a 400.
-			if (nextOffset > MAX_TRADES_OFFSET) return undefined;
-			return nextOffset;
-		},
+		getNextPageParam: (lastPage) => nextOffset(lastPage, pageSize),
 		enabled,
 	});
 }

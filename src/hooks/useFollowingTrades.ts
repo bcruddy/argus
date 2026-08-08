@@ -2,7 +2,6 @@
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import {
-	MAX_TRADES_OFFSET,
 	groupedTradesResponseSchema,
 	parseResponse,
 	tradesResponseSchema,
@@ -10,7 +9,7 @@ import {
 } from '@/schemas/api';
 import { followingTradesQueryKey, infiniteFollowingTradesQueryKey } from '@/lib/queryKeys';
 import type { TradesFilters } from './useTradesFilters';
-import type { Trade } from './useTrades';
+import { nextOffset, type Trade } from './useTrades';
 
 // Extended Trade type with wallet label
 export interface FollowingTrade extends Trade {
@@ -60,13 +59,7 @@ export function useInfiniteFollowingTrades(filters: TradesFilters, pageSize: num
 		queryKey: infiniteFollowingTradesQueryKey(filters, pageSize),
 		queryFn: ({ pageParam = 0 }) => fetchFollowingTrades(filters, pageSize, pageParam),
 		initialPageParam: 0,
-		getNextPageParam: (lastPage) => {
-			if (!lastPage.hasMore) return undefined;
-			const nextOffset = lastPage.offset + pageSize;
-			// Same offset cap as /api/trades — see useInfiniteTrades.
-			if (nextOffset > MAX_TRADES_OFFSET) return undefined;
-			return nextOffset;
-		},
+		getNextPageParam: (lastPage) => nextOffset(lastPage, pageSize),
 		enabled,
 	});
 }

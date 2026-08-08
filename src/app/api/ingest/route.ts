@@ -24,10 +24,10 @@ async function runIngest(): Promise<IngestSummary> {
 	if (trades.length === 0) return summary;
 
 	const hashes = trades.map((t) => t.transactionHash);
-	const existing = await sql`
+	const existing = (await sql`
 		SELECT transaction_hash FROM trades
 		WHERE transaction_hash = ANY(${hashes})
-	`;
+	`) as { transaction_hash: string }[];
 	const existingHashes = new Set(existing.map((r) => r.transaction_hash));
 
 	// Recompute the threshold locally instead of trusting Polymarket's

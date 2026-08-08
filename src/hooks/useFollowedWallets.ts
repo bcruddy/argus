@@ -1,10 +1,24 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { followedWalletsResponseSchema, parseResponse } from '@/schemas/api';
+import {
+	apiErrorSchema,
+	followWalletResponseSchema,
+	followedWalletsResponseSchema,
+	parseResponse,
+} from '@/schemas/api';
 import type { FollowedWallet, FollowedWalletsResponse } from '@/schemas/api';
 
 export type { FollowedWallet, FollowedWalletsResponse };
+
+// A failed mutation's body is whatever the route managed to emit — JSON with an `error`
+// string on the happy path, but HTML or nothing from an infrastructure failure. Parse it
+// so `error.error` can't quietly become `undefined` in the thrown message.
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+	const body: unknown = await res.json().catch(() => null);
+	const parsed = apiErrorSchema.safeParse(body);
+	return parsed.success ? parsed.data.error : fallback;
+}
 
 async function fetchFollowedWallets(): Promise<FollowedWalletsResponse> {
 	const res = await fetch('/api/wallets/followed');
@@ -24,10 +38,9 @@ async function followWallet(walletAddress: string, label?: string): Promise<{ wa
 		body: JSON.stringify({ walletAddress, label }),
 	});
 	if (!res.ok) {
-		const error = await res.json().catch(() => ({ error: 'Failed to follow wallet' }));
-		throw new Error(error.error || 'Failed to follow wallet');
+		throw new Error(await errorMessage(res, 'Failed to follow wallet'));
 	}
-	return res.json();
+	return parseResponse(followWalletResponseSchema, await res.json(), '/api/wallets/followed');
 }
 
 async function unfollowWallet(walletAddress: string): Promise<void> {
@@ -35,8 +48,7 @@ async function unfollowWallet(walletAddress: string): Promise<void> {
 		method: 'DELETE',
 	});
 	if (!res.ok) {
-		const error = await res.json().catch(() => ({ error: 'Failed to unfollow wallet' }));
-		throw new Error(error.error || 'Failed to unfollow wallet');
+		throw new Error(await errorMessage(res, 'Failed to unfollow wallet'));
 	}
 }
 
@@ -88,7 +100,9 @@ export function useFollowWallet() {
 			queryClient.setQueryData(followedWalletsKey, context?.previous);
 		},
 		onSettled: () => {
-			queryClient.invalidateQueries({ queryKey: followedWalletsKey });
+			// Deliberately not returned: awaiting the refetch here would keep isPending
+			// true past the optimistic update the button already rendered.
+			void queryClient.invalidateQueries({ queryKey: followedWalletsKey });
 		},
 	});
 }
@@ -111,7 +125,9 @@ export function useUnfollowWallet() {
 			queryClient.setQueryData(followedWalletsKey, context?.previous);
 		},
 		onSettled: () => {
-			queryClient.invalidateQueries({ queryKey: followedWalletsKey });
+			// Deliberately not returned: awaiting the refetch here would keep isPending
+			// true past the optimistic update the button already rendered.
+			void queryClient.invalidateQueries({ queryKey: followedWalletsKey });
 		},
 	});
 }

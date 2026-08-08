@@ -46,6 +46,10 @@ function generateGroupId(wallet: string, conditionIds: string[], timeBucket: str
 }
 
 function buildTradeGroup(wallet: string, trades: RawTrade[], timeBucket: string): TradeGroup {
+	// Every caller builds this array by pushing at least one trade. Assert the invariant
+	// instead of assuming it: firstTradeTime/lastTradeTime below have no sane empty value.
+	if (trades.length === 0) throw new Error('buildTradeGroup requires at least one trade');
+
 	const groupType = classifyGroupType(trades);
 	const conditionIds = [...new Set(trades.map((t) => t.condition_id))];
 
@@ -75,6 +79,9 @@ function buildTradeGroup(wallet: string, trades: RawTrade[], timeBucket: string)
 	const sortedTrades = [...trades].sort(
 		(a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime(),
 	);
+	const firstTrade = sortedTrades[0];
+	const lastTrade = sortedTrades[sortedTrades.length - 1];
+	if (!firstTrade || !lastTrade) throw new Error('buildTradeGroup: sort lost the trades');
 
 	// Extract unique events
 	const eventsMap = new Map<string, { title: string | null; category: string | null }>();
@@ -104,8 +111,8 @@ function buildTradeGroup(wallet: string, trades: RawTrade[], timeBucket: string)
 			buyCount,
 			sellCount,
 			avgPrice: Math.round(avgPrice * 10000) / 10000,
-			firstTradeTime: sortedTrades[0].trade_timestamp,
-			lastTradeTime: sortedTrades[sortedTrades.length - 1].trade_timestamp,
+			firstTradeTime: firstTrade.trade_timestamp,
+			lastTradeTime: lastTrade.trade_timestamp,
 		},
 		events,
 		trades: sortedTrades.map((t) => ({
@@ -124,28 +131,30 @@ function buildTradeGroup(wallet: string, trades: RawTrade[], timeBucket: string)
 }
 
 // Group trades by wallet + day bucket, sorted by most recent trade time then total value.
-function buildTradeGroups(trades: RawTrade[]): TradeGroup[] {
-	const groupsMap = new Map<string, RawTrade[]>();
+export function buildTradeGroups(trades: RawTrade[]): TradeGroup[] {
+	// The bucket carries its own components rather than being parsed back out of the
+	// composite key — splitting the key on ':' handed buildTradeGroup two values the
+	// compiler could only call `string | undefined`.
+	const groupsMap = new Map<string, { wallet: string; timeBucket: string; trades: RawTrade[] }>();
 
 	for (const trade of trades) {
-		// Create a composite key for grouping: wallet + time bucket
-		const timeBucket = new Date(trade.trade_timestamp).toISOString().split('T')[0];
+		// toISOString() is always YYYY-MM-DDTHH:mm:ss.sssZ, so the first 10 chars are the UTC day.
+		const timeBucket = new Date(trade.trade_timestamp).toISOString().slice(0, 10);
 		const groupKey = `${trade.proxy_wallet}:${timeBucket}`;
 
-		if (!groupsMap.has(groupKey)) {
-			groupsMap.set(groupKey, []);
+		const bucket = groupsMap.get(groupKey);
+		if (bucket) {
+			bucket.trades.push(trade);
+		} else {
+			groupsMap.set(groupKey, { wallet: trade.proxy_wallet, timeBucket, trades: [trade] });
 		}
-		groupsMap.get(groupKey)!.push(trade);
 	}
 
 	// Trades spanning multiple events stay in a single multi-event umbrella group;
 	// splitting them per event would make the same trade appear twice.
-	const finalGroups: TradeGroup[] = [];
-
-	for (const [groupKey, groupTrades] of groupsMap) {
-		const [walletAddr, timeBucket] = groupKey.split(':');
-		finalGroups.push(buildTradeGroup(walletAddr, groupTrades, timeBucket));
-	}
+	const finalGroups = Array.from(groupsMap.values(), (bucket) =>
+		buildTradeGroup(bucket.wallet, bucket.trades, bucket.timeBucket),
+	);
 
 	// Sort groups by most recent trade time, then by total value
 	finalGroups.sort((a, b) => {

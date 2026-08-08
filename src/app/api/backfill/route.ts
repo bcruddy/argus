@@ -65,8 +65,7 @@ export async function POST(request: NextRequest) {
 		}
 
 		// A short page means we reached the end of the table.
-		const nextCursor =
-			marketsToBackfill.length === limit ? marketsToBackfill[marketsToBackfill.length - 1].condition_id : null;
+		const nextCursor = marketsToBackfill.length === limit ? (marketsToBackfill.at(-1)?.condition_id ?? null) : null;
 
 		// Second job, moved out of /api/ingest: link trades that were stored
 		// before their market could be fetched.

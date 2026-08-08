@@ -256,7 +256,9 @@ export function TradesPage({ scope }: { scope: TradesScope }) {
 	// Fetch next page when sentinel is visible
 	useEffect(() => {
 		if (isIntersecting && hasNextPage && !isFetchingNextPage) {
-			fetchNextPage();
+			// React Query surfaces the failure through the query's error state, so there is
+			// nothing for this effect to catch.
+			void fetchNextPage();
 		}
 	}, [isIntersecting, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
@@ -449,12 +451,12 @@ export function TradesPage({ scope }: { scope: TradesScope }) {
 								{isAll && followedCount > 0 && <FollowingLink followedCount={followedCount} />}
 							</div>
 							{isAll ? (
-								<Button onClick={handleRefresh} disabled={refreshing} size="sm" className="gap-1">
+								<Button onClick={() => void handleRefresh()} disabled={refreshing} size="sm" className="gap-1">
 									<RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
 									<span className="hidden sm:inline">{refreshing ? 'Refreshing...' : 'Refresh'}</span>
 								</Button>
 							) : (
-								<Button onClick={handleRefresh} disabled={refreshing} size="sm">
+								<Button onClick={() => void handleRefresh()} disabled={refreshing} size="sm">
 									{refreshing ? 'Refreshing...' : 'Refresh'}
 								</Button>
 							)}
@@ -534,9 +536,14 @@ export function TradesPage({ scope }: { scope: TradesScope }) {
 								aria-labelledby="filter-min-amount-label"
 								// onValueChange only moves the readout; onValueCommit (which Radix
 								// fires for pointer release and each keyboard step) is what refetches.
-								onValueChange={(value) => setDragMinAmount(value[0])}
-								onValueCommit={(value) => {
-									setMinAmount(value[0]);
+								// Single-thumb slider, so Radix always emits exactly one value; ignore
+								// the event rather than guess if that ever stops being true.
+								onValueChange={([next]) => {
+									if (next !== undefined) setDragMinAmount(next);
+								}}
+								onValueCommit={([next]) => {
+									if (next === undefined) return;
+									setMinAmount(next);
 									setDragMinAmount(null);
 								}}
 								min={10000}
