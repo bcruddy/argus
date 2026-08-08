@@ -52,7 +52,9 @@ type RawTradeWire = Omit<RawTrade, 'size' | 'price' | 'usdc_value' | 'trade_time
 	trade_timestamp: string | Date;
 };
 
-function toIsoString(value: string | Date): string {
+// The Neon HTTP driver returns timestamptz as a Date, but a cached/serialized row can
+// arrive as a string. Exported because the wallets routes hit the same column type.
+export function toIsoString(value: string | Date): string {
 	return value instanceof Date ? value.toISOString() : value;
 }
 

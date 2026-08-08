@@ -42,9 +42,10 @@ async function syncOneMarket(conditionId: string): Promise<{ conditionId: string
 			RETURNING id
 		`) as { id: string }[];
 
-		if (insertResult.length === 0) return null;
+		const inserted = insertResult[0];
+		if (!inserted) return null;
 
-		return { conditionId, marketId: insertResult[0].id };
+		return { conditionId, marketId: inserted.id };
 	} catch (error) {
 		console.error(`Failed to sync market for condition ${conditionId}:`, error);
 		return null;

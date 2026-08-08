@@ -28,9 +28,9 @@ const REQUEST_TIMEOUT_MS = 15000;
 
 // Tagged so the catch below can tell "the server said no and will keep saying
 // no" (404 on a resolved market) apart from a transport failure worth retrying.
-class NonRetryableHttpError extends Error {}
+export class NonRetryableHttpError extends Error {}
 
-async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+export async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		try {
 			const response = await fetch(url, {
@@ -72,7 +72,7 @@ export async function fetchWhaleTrades(options: FetchWhaleTradesOptions = {}): P
 		},
 	});
 
-	const data = await response.json();
+	const data: unknown = await response.json();
 	const parsed = tradesResponseSchema.safeParse(data);
 
 	if (!parsed.success) {
@@ -97,7 +97,7 @@ export async function fetchMarketByConditionId(conditionId: string): Promise<Clo
 			},
 		});
 
-		const data = await response.json();
+		const data: unknown = await response.json();
 
 		const parsed = clobMarketSchema.safeParse(data);
 		if (!parsed.success) {
