@@ -25,15 +25,8 @@ export const tradesQuerySchema = z.object({
 		.transform((val) => val?.trim())
 		.optional()
 		.nullable(),
-	minAmount: z.preprocess(
-		nullToUndefined,
-		z.coerce.number().int().min(0).max(100000000).optional(),
-	),
-	wallet: z
-		.string()
-		.regex(ethereumAddressRegex, 'Invalid wallet address format')
-		.optional()
-		.nullable(),
+	minAmount: z.preprocess(nullToUndefined, z.coerce.number().int().min(0).max(100000000).optional()),
+	wallet: z.string().regex(ethereumAddressRegex, 'Invalid wallet address format').optional().nullable(),
 });
 
 export type TradesQuery = z.infer<typeof tradesQuerySchema>;
@@ -52,30 +45,16 @@ export const groupedTradesQuerySchema = z.object({
 		.transform((val) => val?.trim())
 		.optional()
 		.nullable(),
-	minAmount: z.preprocess(
-		nullToUndefined,
-		z.coerce.number().int().min(0).max(100000000).optional(),
-	),
-	wallet: z
-		.string()
-		.regex(ethereumAddressRegex, 'Invalid wallet address format')
-		.optional()
-		.nullable(),
-	timeWindowHours: z.preprocess(
-		nullToUndefined,
-		z.coerce.number().int().min(1).max(168).default(24),
-	),
+	minAmount: z.preprocess(nullToUndefined, z.coerce.number().int().min(0).max(100000000).optional()),
+	wallet: z.string().regex(ethereumAddressRegex, 'Invalid wallet address format').optional().nullable(),
+	timeWindowHours: z.preprocess(nullToUndefined, z.coerce.number().int().min(1).max(168).default(24)),
 	limit: z.preprocess(nullToUndefined, z.coerce.number().int().min(1).max(100).default(50)),
 });
 
 export type GroupedTradesQuery = z.infer<typeof groupedTradesQuerySchema>;
 
 // Group types for whale activity classification
-export type TradeGroupType =
-	| 'position_building'
-	| 'position_closing'
-	| 'position_adjustment'
-	| 'multi_event';
+export type TradeGroupType = 'position_building' | 'position_closing' | 'position_adjustment' | 'multi_event';
 
 // Trade group structure
 export interface TradeGroup {
@@ -132,23 +111,13 @@ export const followWalletSchema = z.object({
 		.string()
 		.regex(ethereumAddressRegex, 'Invalid wallet address format')
 		.transform((val) => val.toLowerCase()), // Normalize to lowercase
-	label: z
-		.string()
-		.max(100, 'Label must be 100 characters or less')
-		.trim()
-		.optional()
-		.nullable(),
+	label: z.string().max(100, 'Label must be 100 characters or less').trim().optional().nullable(),
 });
 
 export type FollowWalletInput = z.infer<typeof followWalletSchema>;
 
 export const updateWalletLabelSchema = z.object({
-	label: z
-		.string()
-		.max(100, 'Label must be 100 characters or less')
-		.trim()
-		.optional()
-		.nullable(),
+	label: z.string().max(100, 'Label must be 100 characters or less').trim().optional().nullable(),
 });
 
 export type UpdateWalletLabelInput = z.infer<typeof updateWalletLabelSchema>;

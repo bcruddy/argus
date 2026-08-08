@@ -28,11 +28,7 @@ export interface TradesResponse {
 	offset: number;
 }
 
-async function fetchTrades(
-	filters: TradesFilters,
-	limit: number,
-	offset: number = 0,
-): Promise<TradesResponse> {
+async function fetchTrades(filters: TradesFilters, limit: number, offset: number = 0): Promise<TradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
 	params.set('offset', String(offset));

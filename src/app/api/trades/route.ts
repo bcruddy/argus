@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db';
 import { tradesQuerySchema, sanitizeForLike } from '@/schemas/api';
 
 export async function GET(request: NextRequest) {
 	try {
+		// Defense in depth: the proxy middleware is the primary gate, but a
+		// middleware bypass must not expose this route (audit 2026-08-07).
+		const { userId } = await auth();
+		if (!userId) {
+			return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+		}
+
 		const { searchParams } = new URL(request.url);
 
 		// Validate and parse query parameters with Zod

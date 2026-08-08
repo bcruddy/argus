@@ -18,9 +18,7 @@ export function FollowWalletButton({ walletAddress, variant = 'icon', size = 'sm
 	const [isHovered, setIsHovered] = useState(false);
 
 	const normalizedAddress = walletAddress.toLowerCase();
-	const isFollowed = followedWallets?.wallets?.some(
-		(w) => w.walletAddress.toLowerCase() === normalizedAddress,
-	);
+	const isFollowed = followedWallets?.wallets?.some((w) => w.walletAddress.toLowerCase() === normalizedAddress);
 
 	const isLoading = followMutation.isPending || unfollowMutation.isPending;
 

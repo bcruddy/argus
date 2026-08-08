@@ -6,7 +6,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { TradeGroup, TradeGroupType } from '@/schemas/api';
-import { ChevronDown, ChevronRight, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Layers, ArrowUp, ArrowDown } from 'lucide-react';
+import {
+	ChevronDown,
+	ChevronRight,
+	ExternalLink,
+	TrendingUp,
+	TrendingDown,
+	RefreshCw,
+	Layers,
+	ArrowUp,
+	ArrowDown,
+} from 'lucide-react';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
 
 // Types for outcome aggregation
@@ -166,11 +176,15 @@ function PositionBadge({ position }: { position: OutcomePosition }) {
 
 	return (
 		<div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
-			<span className={`font-medium text-sm ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+			<span
+				className={`font-medium text-sm ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+			>
 				{position.outcome}
 			</span>
 			<span className="text-xs text-muted-foreground">·</span>
-			<span className={`flex items-center gap-0.5 text-xs font-mono ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+			<span
+				className={`flex items-center gap-0.5 text-xs font-mono ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+			>
 				{isLong ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
 				{formatUsd(Math.abs(netValue))}
 			</span>
@@ -196,12 +210,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 							{groupConfig.label}
 						</Badge>
 					</div>
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={() => setExpanded(!expanded)}
-						className="h-8 w-8 p-0"
-					>
+					<Button variant="ghost" size="sm" onClick={() => setExpanded(!expanded)} className="h-8 w-8 p-0">
 						{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
 					</Button>
 				</div>
@@ -321,9 +330,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 													{trade.side}
 												</Badge>
 											</TableCell>
-											<TableCell className="text-xs">
-												{trade.outcome || '-'}
-											</TableCell>
+											<TableCell className="text-xs">{trade.outcome || '-'}</TableCell>
 											<TableCell className="text-xs text-right font-mono">{formatNumber(trade.size)}</TableCell>
 											<TableCell className="text-xs text-right font-mono">{formatPrice(trade.price)}</TableCell>
 											<TableCell className="text-xs text-right font-mono font-medium">

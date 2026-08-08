@@ -116,14 +116,18 @@ import { z } from 'zod';
 
 // Define schema with strict validation
 const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  category: z.string().max(100).regex(/^[a-zA-Z0-9\s\-_]+$/).optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(50),
+	category: z
+		.string()
+		.max(100)
+		.regex(/^[a-zA-Z0-9\s\-_]+$/)
+		.optional(),
 });
 
 // In API route
 const parseResult = querySchema.safeParse(searchParams);
 if (!parseResult.success) {
-  return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
+	return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
 }
 ```
 

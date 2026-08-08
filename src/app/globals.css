@@ -141,7 +141,8 @@
 }
 
 @keyframes whale-bob {
-	0%, 100% {
+	0%,
+	100% {
 		transform: translateY(10px) rotate(2deg);
 	}
 	50% {
@@ -161,7 +162,8 @@
 }
 
 @keyframes whale-wave {
-	0%, 100% {
+	0%,
+	100% {
 		transform: translateY(0);
 	}
 	50% {
@@ -170,7 +172,8 @@
 }
 
 @keyframes whale-spout {
-	0%, 100% {
+	0%,
+	100% {
 		transform: scaleY(1);
 		opacity: 0.8;
 	}
@@ -201,7 +204,9 @@
 }
 
 .whale-breach-active {
-	animation: whale-breach 0.8s ease-out forwards, whale-bob 2s ease-in-out 0.8s infinite;
+	animation:
+		whale-breach 0.8s ease-out forwards,
+		whale-bob 2s ease-in-out 0.8s infinite;
 }
 
 .splash-droplet {

@@ -58,7 +58,11 @@ function formatTimestamp(timestamp: string): string {
 
 function formatTimestampShort(timestamp: string): string {
 	const date = new Date(timestamp);
-	return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+	return (
+		date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+		' ' +
+		date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+	);
 }
 
 function SortIcon({ field, currentSort, currentOrder }: { field: string; currentSort: string; currentOrder: string }) {
@@ -92,7 +96,9 @@ function TradeCard({ trade }: { trade: Trade }) {
 				<div className="flex justify-between items-start mb-2">
 					<div className="flex-1 min-w-0 mr-2">
 						<p className="text-sm font-medium truncate" title={trade.title || trade.condition_id}>
-							{trade.title || <span className="text-muted-foreground italic">{trade.condition_id.slice(0, 16)}...</span>}
+							{trade.title || (
+								<span className="text-muted-foreground italic">{trade.condition_id.slice(0, 16)}...</span>
+							)}
 						</p>
 						<p className="text-xs text-muted-foreground">{formatTimestampShort(trade.trade_timestamp)}</p>
 					</div>
@@ -246,9 +252,7 @@ function TradesTableContent() {
 	return (
 		<div className="container mx-auto py-4 md:py-8 px-3 md:px-4">
 			{/* Whale splash animation for mega trades */}
-			{showWhale && (
-				<WhaleSplash amount={megaTradeAmount} onDismiss={() => setShowWhale(false)} />
-			)}
+			{showWhale && <WhaleSplash amount={megaTradeAmount} onDismiss={() => setShowWhale(false)} />}
 
 			<Card>
 				<CardHeader className="pb-4">
@@ -454,24 +458,16 @@ function TradesTableContent() {
 							))}
 
 							{/* Infinite scroll sentinel */}
-							<div
-								ref={sentinelRef}
-								className="h-4"
-								aria-hidden="true"
-							/>
+							<div ref={sentinelRef} className="h-4" aria-hidden="true" />
 
 							{/* Loading indicator for next page */}
 							{isFetchingNextPage && (
-								<div className="py-4 text-center text-sm text-muted-foreground">
-									Loading more trades...
-								</div>
+								<div className="py-4 text-center text-sm text-muted-foreground">Loading more trades...</div>
 							)}
 
 							{/* End of results indicator */}
 							{!hasNextPage && mobileTrades.length > 0 && (
-								<div className="py-4 text-center text-xs text-muted-foreground">
-									No more trades to load
-								</div>
+								<div className="py-4 text-center text-xs text-muted-foreground">No more trades to load</div>
 							)}
 						</div>
 					) : (
@@ -545,9 +541,7 @@ function TradesTableContent() {
 
 					{/* Results count (only for individual view on desktop) */}
 					{viewMode === 'individual' && !isMobile && trades.length > 0 && (
-						<div className="mt-4 text-xs text-muted-foreground text-center">
-							Showing {trades.length} trades
-						</div>
+						<div className="mt-4 text-xs text-muted-foreground text-center">Showing {trades.length} trades</div>
 					)}
 				</CardContent>
 			</Card>
