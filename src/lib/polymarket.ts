@@ -5,17 +5,19 @@ import { POLYMARKET_DATA_API_URL, POLYMARKET_CLOB_API_URL, WHALE_THRESHOLD_DEFAU
 const tradesResponseSchema = z.array(polymarketTradeSchema);
 
 // Schema for Polymarket CLOB API market response
-const clobMarketSchema = z.object({
-	condition_id: z.string(),
-	market_slug: z.string().optional(),
-	question: z.string().optional(),
-	description: z.string().optional(),
-	icon: z.string().optional(),
-	tags: z.array(z.string()).default([]),
-	active: z.boolean().optional(),
-	closed: z.boolean().optional(),
-	end_date_iso: z.string().optional(),
-}).passthrough();
+const clobMarketSchema = z
+	.object({
+		condition_id: z.string(),
+		market_slug: z.string().optional(),
+		question: z.string().optional(),
+		description: z.string().optional(),
+		icon: z.string().optional(),
+		tags: z.array(z.string()).default([]),
+		active: z.boolean().optional(),
+		closed: z.boolean().optional(),
+		end_date_iso: z.string().optional(),
+	})
+	.passthrough();
 
 export type ClobMarket = z.infer<typeof clobMarketSchema>;
 
@@ -24,7 +26,11 @@ const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 
-async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+// Tagged so the catch below can tell "the server said no and will keep saying
+// no" (404 on a resolved market) apart from a transport failure worth retrying.
+export class NonRetryableHttpError extends Error {}
+
+export async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		try {
 			const response = await fetch(url, {
@@ -34,14 +40,14 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
 
 			if (response.ok) return response;
 
-			if (!RETRYABLE_STATUSES.has(response.status) || attempt === MAX_ATTEMPTS - 1) {
-				throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
-			}
+			const message = `Polymarket API error: ${response.status} ${response.statusText}`;
+			if (!RETRYABLE_STATUSES.has(response.status)) throw new NonRetryableHttpError(message);
+			if (attempt === MAX_ATTEMPTS - 1) throw new Error(message);
 
-			await new Promise(r => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+			await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
 		} catch (error) {
-			if (attempt === MAX_ATTEMPTS - 1) throw error;
-			await new Promise(r => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+			if (error instanceof NonRetryableHttpError || attempt === MAX_ATTEMPTS - 1) throw error;
+			await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
 		}
 	}
 	throw new Error('fetchWithRetry: exhausted attempts');
@@ -66,7 +72,7 @@ export async function fetchWhaleTrades(options: FetchWhaleTradesOptions = {}): P
 		},
 	});
 
-	const data = await response.json();
+	const data: unknown = await response.json();
 	const parsed = tradesResponseSchema.safeParse(data);
 
 	if (!parsed.success) {
@@ -91,7 +97,7 @@ export async function fetchMarketByConditionId(conditionId: string): Promise<Clo
 			},
 		});
 
-		const data = await response.json();
+		const data: unknown = await response.json();
 
 		const parsed = clobMarketSchema.safeParse(data);
 		if (!parsed.success) {

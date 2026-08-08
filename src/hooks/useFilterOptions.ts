@@ -1,16 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { filtersResponseSchema } from '@/schemas/api';
+import { fetchJson } from '@/lib/fetchJson';
 
 export interface FilterOptions {
 	categories: string[];
-	events: string[];
 }
 
-async function fetchFilterOptions(): Promise<FilterOptions> {
-	const res = await fetch('/api/filters');
-	if (!res.ok) throw new Error('Failed to fetch filter options');
-	return res.json();
+function fetchFilterOptions(): Promise<FilterOptions> {
+	return fetchJson('/api/filters', filtersResponseSchema, 'filter options');
 }
 
 export function useFilterOptions() {

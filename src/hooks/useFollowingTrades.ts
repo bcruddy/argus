@@ -1,76 +1,39 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { followingTradesQueryKey, infiniteFollowingTradesQueryKey } from '@/lib/queryKeys';
 import type { TradesFilters } from './useTradesFilters';
-import type { Trade } from './useTrades';
-import type { GroupedTradesResponse } from '@/schemas/api';
+import { fetchTrades, nextOffset } from './useTrades';
+import { fetchGroupedTrades, type GroupedTradesFilters } from './useGroupedTrades';
 
-// Extended Trade type with wallet label
-export interface FollowingTrade extends Trade {
-	wallet_label: string | null;
-}
-
-export interface FollowingTradesResponse {
-	trades: FollowingTrade[];
-}
-
-async function fetchFollowingTrades(filters: TradesFilters, limit: number): Promise<FollowingTradesResponse> {
-	const params = new URLSearchParams();
-	params.set('limit', String(limit));
-	if (filters.sort !== 'time') params.set('sort', filters.sort);
-	if (filters.order !== 'desc') params.set('order', filters.order);
-	if (filters.category) params.set('category', filters.category);
-	if (filters.event) params.set('event', filters.event);
-	if (filters.minAmount) params.set('minAmount', String(filters.minAmount));
-
-	const res = await fetch(`/api/trades/following?${params}`);
-	if (!res.ok) {
-		if (res.status === 401) throw new Error('Unauthorized');
-		throw new Error('Failed to fetch following trades');
-	}
-	return res.json();
-}
-
-export function useFollowingTrades(filters: TradesFilters, limit: number = 50) {
+// Thin bindings of the scope-parameterized fetchers (useTrades/useGroupedTrades) to
+// the following-feed query keys. The 401-aware retry policy is a query-client
+// default (src/lib/queryClient.ts), so these hooks carry no override.
+export function useFollowingTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
 	return useQuery({
-		queryKey: ['followingTrades', filters, limit],
-		queryFn: () => fetchFollowingTrades(filters, limit),
-		retry: (failureCount, error) => {
-			if (error.message === 'Unauthorized') return false;
-			return failureCount < 3;
-		},
+		queryKey: followingTradesQueryKey(filters, limit),
+		queryFn: () => fetchTrades('following', filters, limit),
+		enabled,
 	});
 }
 
-// Grouped following trades
-interface GroupedFollowingFilters {
-	category: string | null;
-	event: string | null;
-	minAmount: number;
-	timeWindowHours: number;
+export function useInfiniteFollowingTrades(filters: TradesFilters, pageSize: number = 20, enabled: boolean = true) {
+	return useInfiniteQuery({
+		queryKey: infiniteFollowingTradesQueryKey(filters, pageSize),
+		queryFn: ({ pageParam = 0 }) => fetchTrades('following', filters, pageSize, pageParam),
+		initialPageParam: 0,
+		getNextPageParam: (lastPage) => nextOffset(lastPage, pageSize),
+		enabled,
+	});
 }
 
-async function fetchGroupedFollowingTrades(
-	filters: GroupedFollowingFilters,
-	limit: number,
-): Promise<GroupedTradesResponse> {
-	const params = new URLSearchParams();
-	params.set('limit', String(limit));
-	params.set('timeWindowHours', String(filters.timeWindowHours));
-	if (filters.category) params.set('category', filters.category);
-	if (filters.event) params.set('event', filters.event);
-	if (filters.minAmount) params.set('minAmount', String(filters.minAmount));
-
-	const res = await fetch(`/api/trades/following/grouped?${params}`);
-	if (!res.ok) {
-		if (res.status === 401) throw new Error('Unauthorized');
-		throw new Error('Failed to fetch grouped following trades');
-	}
-	return res.json();
-}
-
-export function useGroupedFollowingTrades(filters: TradesFilters, timeWindowHours: number, limit: number = 50) {
-	const groupedFilters: GroupedFollowingFilters = {
+export function useGroupedFollowingTrades(
+	filters: TradesFilters,
+	timeWindowHours: number,
+	limit: number = 50,
+	enabled: boolean = true,
+) {
+	const groupedFilters: GroupedTradesFilters = {
 		category: filters.category,
 		event: filters.event,
 		minAmount: filters.minAmount,
@@ -79,10 +42,7 @@ export function useGroupedFollowingTrades(filters: TradesFilters, timeWindowHour
 
 	return useQuery({
 		queryKey: ['groupedFollowingTrades', groupedFilters, limit],
-		queryFn: () => fetchGroupedFollowingTrades(groupedFilters, limit),
-		retry: (failureCount, error) => {
-			if (error.message === 'Unauthorized') return false;
-			return failureCount < 3;
-		},
+		queryFn: () => fetchGroupedTrades('following', groupedFilters, limit),
+		enabled,
 	});
 }

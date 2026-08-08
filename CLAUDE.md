@@ -2,7 +2,16 @@
 
 ## Project Overview
 
-Argus is a Polymarket whale trade detection system that monitors for large trades and sends real-time alerts.
+Argus is a Polymarket whale trade detection system: it ingests large trades from Polymarket's
+public APIs, stores them in Postgres, and serves an authenticated dashboard for browsing whale
+activity and following wallets.
+
+**Implementation status** (keep this honest — see `docs/audit-2026-08-07.md`):
+
+- Working: ingestion (manually triggered), dashboard, wallet following
+- NOT implemented: alert delivery (Telegram/Discord), the near-expiry and geopolitics detection
+  rules, Clerk→`users` webhook sync. The `alerts`/`alert_channels` tables and
+  `src/schemas/{alert,channel}.ts` are scaffolding for that future work.
 
 ## Tech Stack
 
@@ -21,7 +30,9 @@ Argus is a Polymarket whale trade detection system that monitors for large trade
 pnpm dev          # Start development server
 pnpm build        # Production build
 pnpm lint         # Run ESLint
-pnpm db:up        # Run database migrations
+pnpm typecheck    # tsc --noEmit
+pnpm format:check # Prettier check (CI gate)
+pnpm db:up        # Run database migrations (reads DATABASE_URL from real env, not .env.local)
 pnpm db:down      # Rollback last migration
 pnpm db:create    # Create new migration
 ```
@@ -35,7 +46,7 @@ src/
 ├── lib/              # Utilities (db, queryClient, constants)
 ├── schemas/          # Zod validation schemas
 ├── hooks/            # React Query hooks
-└── middleware.ts     # Clerk authentication middleware
+└── proxy.ts          # Clerk auth middleware (Next 16 renamed middleware.ts -> proxy.ts)
 
 migrations/           # db-migrate SQL migrations
 ```
@@ -46,30 +57,36 @@ Copy `.env.example` to `.env.local` and fill in:
 
 - Clerk API keys (from dashboard.clerk.com)
 - Neon DATABASE_URL
-- Notification tokens (Telegram, Discord) when needed
+- CRON_SECRET for operator endpoints (`/api/backfill`)
 
 ## Authentication
 
 Using Clerk for auth with personal workspaces only (no organizations).
 
-- Public routes: `/`, `/sign-in`, `/sign-up`, `/api/webhooks`, `/api/health`
-- All other routes require authentication
+- Public routes (see `src/proxy.ts`): `/sign-in`, `/sign-up`, `/api/webhooks`, `/api/health`,
+  `/api/backfill` (self-protects with CRON_SECRET bearer token)
+- Everything else — including `/` — requires authentication
+- Middleware returns 401 JSON for unauthenticated `/api/*` calls and redirects for pages
+- Defense in depth: route handlers also call `auth()` themselves; never rely on the proxy alone
 
 ## Database Schema
 
-Five main tables:
+Six tables:
 
-- `users` - Synced from Clerk via webhooks
-- `alert_channels` - User notification preferences
-- `markets` - Polymarket market metadata
+- `users` - Intended to sync from Clerk via webhooks (webhook handler is a stub; table is empty)
+- `alert_channels` - User notification preferences (unused until alerting ships)
+- `markets` - Polymarket market metadata (tags are a `string[]` jsonb, e.g. `["Sports","NBA"]`)
 - `trades` - Trade history with whale detection
-- `alerts` - Sent notification records
+- `alerts` - Sent notification records (unused until alerting ships)
+- `followed_wallets` - Per-user wallet watchlist, keyed on `clerk_id` directly (no FK to `users`)
 
 ## Whale Detection Rules
 
-- **Default**: $250k+ trades trigger alerts
-- **Near expiry**: $15k+ trades within 1 hour of market close
-- **Geopolitics**: $15k+ trades within 168 hours (1 week) for geopolitical markets
+- **Default** (implemented): $250k+ trades, fetched via the data API's `filterAmount`
+- **Near expiry** (NOT implemented): $15k+ within 1 hour of market close
+- **Geopolitics** (NOT implemented): $15k+ within 168 hours for geopolitical markets
+
+Thresholds live in `src/lib/constants.ts` and are env-overridable.
 
 ## Security Guidelines
 
@@ -116,14 +133,18 @@ import { z } from 'zod';
 
 // Define schema with strict validation
 const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  category: z.string().max(100).regex(/^[a-zA-Z0-9\s\-_]+$/).optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(50),
+	category: z
+		.string()
+		.max(100)
+		.regex(/^[a-zA-Z0-9\s\-_]+$/)
+		.optional(),
 });
 
 // In API route
 const parseResult = querySchema.safeParse(searchParams);
 if (!parseResult.success) {
-  return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
+	return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
 }
 ```
 
@@ -151,3 +172,13 @@ All API validation schemas are in `src/schemas/api.ts`:
 - [ ] Set appropriate max lengths on string inputs
 - [ ] Validate numeric ranges (min/max)
 - [ ] Never log sensitive data or full error stacks to client
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

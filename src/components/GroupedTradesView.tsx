@@ -5,9 +5,27 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { TradeGroup, TradeGroupType } from '@/schemas/api';
-import { ChevronDown, ChevronRight, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Layers, ArrowUp, ArrowDown } from 'lucide-react';
+import type { GroupedTradesResponse, TradeGroup, TradeGroupType } from '@/schemas/api';
+import {
+	ChevronDown,
+	ChevronRight,
+	ExternalLink,
+	TrendingUp,
+	TrendingDown,
+	RefreshCw,
+	Layers,
+	ArrowUp,
+	ArrowDown,
+} from 'lucide-react';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
+import {
+	formatUsd,
+	formatPrice,
+	formatNumber,
+	formatWallet,
+	formatTimestampShort,
+	polygonscanTxUrl,
+} from '@/lib/format';
 
 // Types for outcome aggregation
 interface OutcomePosition {
@@ -87,45 +105,6 @@ function aggregateByEventAndOutcome(group: TradeGroup): EventSummary[] {
 	return result;
 }
 
-function formatUsd(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 0,
-		maximumFractionDigits: 0,
-	}).format(value);
-}
-
-function formatPrice(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 4,
-	}).format(value);
-}
-
-function formatNumber(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		minimumFractionDigits: 0,
-		maximumFractionDigits: 0,
-	}).format(value);
-}
-
-function formatWallet(wallet: string): string {
-	if (wallet.length <= 10) return wallet;
-	return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
-}
-
-function formatTimestampShort(timestamp: string): string {
-	const date = new Date(timestamp);
-	return (
-		date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-		' ' +
-		date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-	);
-}
-
 function getGroupTypeConfig(groupType: TradeGroupType): {
 	label: string;
 	variant: 'default' | 'secondary' | 'destructive' | 'outline';
@@ -166,11 +145,15 @@ function PositionBadge({ position }: { position: OutcomePosition }) {
 
 	return (
 		<div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
-			<span className={`font-medium text-sm ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+			<span
+				className={`font-medium text-sm ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+			>
 				{position.outcome}
 			</span>
 			<span className="text-xs text-muted-foreground">·</span>
-			<span className={`flex items-center gap-0.5 text-xs font-mono ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+			<span
+				className={`flex items-center gap-0.5 text-xs font-mono ${isLong ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+			>
 				{isLong ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
 				{formatUsd(Math.abs(netValue))}
 			</span>
@@ -178,10 +161,11 @@ function PositionBadge({ position }: { position: OutcomePosition }) {
 	);
 }
 
-function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: boolean }) {
+function TradeGroupCard({ group }: { group: TradeGroup }) {
 	const [expanded, setExpanded] = useState(false);
 	const groupConfig = getGroupTypeConfig(group.groupType);
 	const eventSummaries = aggregateByEventAndOutcome(group);
+	const walletLabel = formatWallet(group.wallet);
 
 	return (
 		<Card className="mb-3">
@@ -189,8 +173,8 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 				{/* Header: Wallet + Group Type + Toggle */}
 				<div className="flex items-center justify-between mb-3">
 					<div className="flex items-center gap-2">
-						<FollowWalletButton walletAddress={group.wallet} variant="icon" />
-						<span className="font-mono text-sm">{formatWallet(group.wallet)}</span>
+						<FollowWalletButton walletAddress={group.wallet} />
+						<span className="font-mono text-sm">{walletLabel}</span>
 						<Badge variant={groupConfig.variant} className="flex items-center gap-1">
 							{groupConfig.icon}
 							{groupConfig.label}
@@ -201,6 +185,8 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 						size="sm"
 						onClick={() => setExpanded(!expanded)}
 						className="h-8 w-8 p-0"
+						aria-expanded={expanded}
+						aria-label={`${expanded ? 'Hide' : 'Show'} individual trades for wallet ${walletLabel}`}
 					>
 						{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
 					</Button>
@@ -267,33 +253,34 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 				{expanded && (
 					<div className="mt-4 pt-4 border-t">
 						<p className="text-xs text-muted-foreground mb-2">Individual Trades</p>
-						{isMobile ? (
-							<div className="space-y-2">
-								{group.trades.map((trade) => (
-									<div key={trade.id} className="bg-muted/50 rounded p-2 text-sm">
-										<div className="flex justify-between items-start mb-1">
-											<span className="truncate flex-1 mr-2" title={trade.title || undefined}>
-												{trade.title || trade.conditionId.slice(0, 16) + '...'}
-											</span>
-											<div className="flex items-center gap-1 shrink-0">
-												<Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'} className="text-xs">
-													{trade.side}
+						{/* Same rows, two layouts. CSS decides which one is visible, so a phone
+						    never paints the desktop table and then swaps it out. */}
+						<div className="space-y-2 md:hidden">
+							{group.trades.map((trade) => (
+								<div key={trade.id} className="bg-muted/50 rounded p-2 text-sm">
+									<div className="flex justify-between items-start mb-1">
+										<span className="truncate flex-1 mr-2" title={trade.title || undefined}>
+											{trade.title || trade.conditionId.slice(0, 16) + '...'}
+										</span>
+										<div className="flex items-center gap-1 shrink-0">
+											<Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'} className="text-xs">
+												{trade.side}
+											</Badge>
+											{trade.outcome && (
+												<Badge variant="outline" className="text-xs">
+													{trade.outcome}
 												</Badge>
-												{trade.outcome && (
-													<Badge variant="outline" className="text-xs">
-														{trade.outcome}
-													</Badge>
-												)}
-											</div>
-										</div>
-										<div className="flex justify-between text-xs">
-											<span className="text-muted-foreground">{formatTimestampShort(trade.tradeTimestamp)}</span>
-											<span className="font-mono">{formatUsd(trade.usdcValue)}</span>
+											)}
 										</div>
 									</div>
-								))}
-							</div>
-						) : (
+									<div className="flex justify-between text-xs">
+										<span className="text-muted-foreground">{formatTimestampShort(trade.tradeTimestamp)}</span>
+										<span className="font-mono">{formatUsd(trade.usdcValue)}</span>
+									</div>
+								</div>
+							))}
+						</div>
+						<div className="hidden md:block">
 							<Table>
 								<TableHeader>
 									<TableRow>
@@ -321,9 +308,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 													{trade.side}
 												</Badge>
 											</TableCell>
-											<TableCell className="text-xs">
-												{trade.outcome || '-'}
-											</TableCell>
+											<TableCell className="text-xs">{trade.outcome || '-'}</TableCell>
 											<TableCell className="text-xs text-right font-mono">{formatNumber(trade.size)}</TableCell>
 											<TableCell className="text-xs text-right font-mono">{formatPrice(trade.price)}</TableCell>
 											<TableCell className="text-xs text-right font-mono font-medium">
@@ -331,10 +316,11 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 											</TableCell>
 											<TableCell>
 												<a
-													href={`https://polygonscan.com/tx/${trade.transactionHash}`}
+													href={polygonscanTxUrl(trade.transactionHash)}
 													target="_blank"
 													rel="noopener noreferrer"
 													className="text-primary hover:underline text-xs flex items-center gap-1"
+													aria-label={`View transaction ${trade.transactionHash.slice(0, 10)} on Polygonscan (opens in a new tab)`}
 												>
 													<ExternalLink className="h-3 w-3" />
 												</a>
@@ -343,7 +329,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 									))}
 								</TableBody>
 							</Table>
-						)}
+						</div>
 					</div>
 				)}
 			</CardContent>
@@ -353,12 +339,14 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 
 interface GroupedTradesViewProps {
 	groups: TradeGroup[];
-	isMobile: boolean;
 	timeWindowHours: number;
-	totalTrades: number;
+	// Null only when the query errored and there is no data at all.
+	meta: GroupedTradesResponse['meta'] | null;
 }
 
-export function GroupedTradesView({ groups, isMobile, timeWindowHours, totalTrades }: GroupedTradesViewProps) {
+// No `isMobile` prop: the two layouts are a CSS breakpoint now, so this renders once
+// for both viewports and the grouped query is fetched once.
+export function GroupedTradesView({ groups, timeWindowHours, meta }: GroupedTradesViewProps) {
 	if (groups.length === 0) {
 		return (
 			<div className="text-muted-foreground py-8 text-center text-sm">
@@ -367,13 +355,24 @@ export function GroupedTradesView({ groups, isMobile, timeWindowHours, totalTrad
 		);
 	}
 
+	// hasMore: the server built more groups than the limit slice returned. Say so
+	// rather than presenting the slice as the whole window.
+	const groupCount =
+		meta && meta.hasMore ? `${meta.returned} of ${meta.totalGroups} wallet groups` : `${groups.length} wallet groups`;
+
 	return (
 		<div>
+			{meta?.truncated && (
+				<p role="status" className="mb-4 rounded-md border border-yellow-600/40 bg-yellow-500/10 px-3 py-2 text-sm">
+					Heavy volume: only the most recent trades in this window were grouped, so wallets active earlier may be
+					missing. Narrow the time window for complete coverage.
+				</p>
+			)}
 			<div className="mb-4 text-sm text-muted-foreground">
-				{groups.length} wallet groups, {totalTrades} total trades in last {timeWindowHours}h
+				{groupCount}, {meta?.totalTrades ?? 0} total trades in last {timeWindowHours}h
 			</div>
 			{groups.map((group) => (
-				<TradeGroupCard key={group.id} group={group} isMobile={isMobile} />
+				<TradeGroupCard key={group.id} group={group} />
 			))}
 		</div>
 	);

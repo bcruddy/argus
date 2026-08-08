@@ -1,0 +1,54 @@
+name: Ingest whale trades
+
+# Vercel Hobby caps crons at one run per day, so vercel.json only keeps a daily
+# backstop; this workflow does the real polling. A failed run here is also the
+# only alerting we have — a red X on this workflow means ingestion is broken.
+#
+# Required repo config:
+#   secret  CRON_SECRET                      — must match the Vercel env var of the same name
+#   secret  VERCEL_AUTOMATION_BYPASS_SECRET  — Project Settings > Deployment Protection >
+#                                              Protection Bypass for Automation (the prod domain
+#                                              sits behind Vercel SSO; without this header the
+#                                              request 302s to vercel.com and never reaches us)
+#   variable INGEST_URL                      — e.g. https://argus-brlabs.vercel.app
+#
+# Note: GitHub disables schedules after 60 days without repo activity.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ingest
+        env:
+          INGEST_URL: ${{ vars.INGEST_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          if [ -z "$INGEST_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::INGEST_URL variable and CRON_SECRET secret must be configured"
+            exit 1
+          fi
+
+          args=(-sS -o response.json -w '%{http_code}' --max-time 90
+                -H "Authorization: Bearer $CRON_SECRET")
+          if [ -n "$BYPASS" ]; then
+            args+=(-H "x-vercel-protection-bypass: $BYPASS")
+          fi
+
+          code=$(curl "${args[@]}" "$INGEST_URL/api/ingest") || {
+            echo "::error::curl failed to reach $INGEST_URL/api/ingest"
+            exit 1
+          }
+
+          echo "HTTP $code"
+          cat response.json || true
+
+          if [ "$code" != "200" ]; then
+            echo "::error::ingest returned HTTP $code (302 = Vercel deployment protection — set VERCEL_AUTOMATION_BYPASS_SECRET; 401 = CRON_SECRET mismatch)"
+            exit 1
+          fi

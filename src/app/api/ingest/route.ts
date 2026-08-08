@@ -1,107 +1,101 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { sql } from '@/lib/db';
-import { fetchWhaleTrades, calculateUsdValue, fetchMarketByConditionId } from '@/lib/polymarket';
+import { fetchWhaleTrades, calculateUsdValue } from '@/lib/polymarket';
+import { syncMarketsForConditionIds } from '@/lib/marketSync';
+import { isAuthorizedCron } from '@/lib/cronAuth';
 import { WHALE_THRESHOLD_DEFAULT } from '@/lib/constants';
 
-interface MarketRow {
-	id: string;
-	condition_id: string;
+export const maxDuration = 60;
+
+// Trades whose market fetch failed at insert time keep market_id NULL and vanish
+// from every category-filtered view. One small chunk per run (the 15-minute poller
+// is the schedule) re-links them without an operator having to drive /api/backfill;
+// that endpoint remains the bulk tool.
+const ORPHAN_REPAIR_LIMIT = 5;
+// Repair is a bonus pass inside a 60s function: skip it when the main ingest
+// already ate this much of the budget (a slow Polymarket day), because one CLOB
+// fetch can burn ~48s worst case (3 attempts x 15s timeout + backoff).
+const ORPHAN_REPAIR_START_BUDGET_MS = 10_000;
+
+interface IngestSummary {
+	fetched: number;
+	new: number;
+	skippedBelowThreshold: number;
+	insertFailures: number;
+	orphansLinked: number;
 }
 
-async function syncMarketsForConditionIds(conditionIds: string[]): Promise<Map<string, string>> {
-	const conditionToMarketId = new Map<string, string>();
+// Excludes condition ids the current run just tried (and failed) to sync —
+// retrying them seconds later only re-burns the time budget.
+async function repairOrphanedTrades(excludeConditionIds: string[]): Promise<number> {
+	const orphans = (await sql`
+		SELECT DISTINCT condition_id FROM trades
+		WHERE market_id IS NULL
+			AND NOT (condition_id = ANY(${excludeConditionIds}))
+		LIMIT ${ORPHAN_REPAIR_LIMIT}
+	`) as { condition_id: string }[];
 
-	if (conditionIds.length === 0) return conditionToMarketId;
+	if (orphans.length === 0) return 0;
 
-	// Check which markets already exist
-	const existingMarkets = (await sql`
-		SELECT id, condition_id FROM markets
-		WHERE condition_id = ANY(${conditionIds})
-	`) as MarketRow[];
+	const synced = await syncMarketsForConditionIds(orphans.map((o) => o.condition_id));
 
-	for (const market of existingMarkets) {
-		conditionToMarketId.set(market.condition_id, market.id);
+	let linked = 0;
+	for (const [conditionId, marketId] of synced) {
+		const rows = (await sql`
+			UPDATE trades
+			SET market_id = ${marketId}
+			WHERE condition_id = ${conditionId} AND market_id IS NULL
+			RETURNING id
+		`) as { id: string }[];
+
+		linked += rows.length;
 	}
 
-	// Find condition IDs that don't have markets yet
-	const missingConditionIds = conditionIds.filter((id) => !conditionToMarketId.has(id));
+	return linked;
+}
 
-	// Fetch and insert missing markets from Polymarket Gamma API
-	for (const conditionId of missingConditionIds) {
+async function runIngest(): Promise<{ summary: IngestSummary; attemptedConditionIds: string[] }> {
+	const summary: IngestSummary = { fetched: 0, new: 0, skippedBelowThreshold: 0, insertFailures: 0, orphansLinked: 0 };
+
+	const trades = await fetchWhaleTrades({ minAmount: WHALE_THRESHOLD_DEFAULT });
+	summary.fetched = trades.length;
+
+	if (trades.length === 0) return { summary, attemptedConditionIds: [] };
+
+	const hashes = trades.map((t) => t.transactionHash);
+	const existing = (await sql`
+		SELECT transaction_hash FROM trades
+		WHERE transaction_hash = ANY(${hashes})
+	`) as { transaction_hash: string }[];
+	const existingHashes = new Set(existing.map((r) => r.transaction_hash));
+
+	// Recompute the threshold locally instead of trusting Polymarket's
+	// filterAmount — a stored row is already $246,912 while labeled
+	// threshold_250k (audit 2026-08-07).
+	const newTrades = trades.filter((trade) => {
+		if (existingHashes.has(trade.transactionHash)) return false;
+		if (calculateUsdValue(trade.size, trade.price) < WHALE_THRESHOLD_DEFAULT) {
+			summary.skippedBelowThreshold++;
+			return false;
+		}
+		return true;
+	});
+
+	if (newTrades.length === 0) return { summary, attemptedConditionIds: [] };
+
+	const uniqueConditionIds = [...new Set(newTrades.map((t) => t.conditionId))];
+	const conditionToMarketId = await syncMarketsForConditionIds(uniqueConditionIds);
+
+	for (const trade of newTrades) {
+		const usdcValue = calculateUsdValue(trade.size, trade.price);
+		const tradeTimestamp = new Date(trade.timestamp * 1000);
+		const marketId = conditionToMarketId.get(trade.conditionId) || null;
+
 		try {
-			const marketData = await fetchMarketByConditionId(conditionId);
-			if (!marketData) continue;
-
-			const tags = marketData.tags;
-
-			const insertResult = (await sql`
-				INSERT INTO markets (condition_id, slug, question, description, image_url, tags, is_active, is_closed, end_date, last_synced_at)
-				VALUES (
-					${conditionId},
-					${marketData.market_slug || null},
-					${marketData.question || 'Unknown Market'},
-					${marketData.description || null},
-					${marketData.icon || null},
-					${JSON.stringify(tags)}::jsonb,
-					${marketData.active ?? true},
-					${marketData.closed ?? false},
-					${marketData.end_date_iso ? new Date(marketData.end_date_iso) : null},
-					${new Date()}
-				)
-				ON CONFLICT (condition_id) DO UPDATE SET
-					slug = COALESCE(EXCLUDED.slug, markets.slug),
-					question = COALESCE(EXCLUDED.question, markets.question),
-					description = COALESCE(EXCLUDED.description, markets.description),
-					tags = EXCLUDED.tags,
-					is_active = EXCLUDED.is_active,
-					is_closed = EXCLUDED.is_closed,
-					end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
-					last_synced_at = EXCLUDED.last_synced_at
-				RETURNING id
-			`) as { id: string }[];
-
-			if (insertResult.length > 0) {
-				conditionToMarketId.set(conditionId, insertResult[0].id);
-			}
-		} catch (error) {
-			console.error(`Failed to sync market for condition ${conditionId}:`, error);
-		}
-	}
-
-	return conditionToMarketId;
-}
-
-export async function POST() {
-	try {
-		const trades = await fetchWhaleTrades({ minAmount: WHALE_THRESHOLD_DEFAULT });
-
-		if (trades.length === 0) {
-			return NextResponse.json({ fetched: 0, new: 0 });
-		}
-
-		const hashes = trades.map((t) => t.transactionHash);
-		const existing = await sql`
-			SELECT transaction_hash FROM trades
-			WHERE transaction_hash = ANY(${hashes})
-		`;
-		const existingHashes = new Set(existing.map((r) => r.transaction_hash));
-
-		const newTrades = trades.filter((t) => !existingHashes.has(t.transactionHash));
-
-		if (newTrades.length === 0) {
-			return NextResponse.json({ fetched: trades.length, new: 0 });
-		}
-
-		// Sync markets for all unique condition IDs in new trades
-		const uniqueConditionIds = [...new Set(newTrades.map((t) => t.conditionId))];
-		const conditionToMarketId = await syncMarketsForConditionIds(uniqueConditionIds);
-
-		for (const trade of newTrades) {
-			const usdcValue = calculateUsdValue(trade.size, trade.price);
-			const tradeTimestamp = new Date(trade.timestamp * 1000);
-			const marketId = conditionToMarketId.get(trade.conditionId) || null;
-
-			await sql`
+			// ON CONFLICT covers the race between the cron run and a dashboard
+			// Refresh: the existing-hash pre-check above is only an optimization.
+			const inserted = (await sql`
 				INSERT INTO trades (
 					transaction_hash,
 					market_id,
@@ -133,64 +127,64 @@ export async function POST() {
 					'threshold_250k',
 					${trade.title || null}
 				)
-			`;
+				ON CONFLICT (transaction_hash) DO NOTHING
+				RETURNING id
+			`) as { id: string }[];
+
+			summary.new += inserted.length;
+		} catch (error) {
+			// One bad row must not abandon the rest of the batch.
+			summary.insertFailures++;
+			console.error(`[ingest] insert failed for ${trade.transactionHash}:`, error);
 		}
+	}
 
-		// Backfill existing trades that don't have market_id (limit to 50 per request)
-		const tradesWithoutMarket = (await sql`
-			SELECT DISTINCT condition_id FROM trades
-			WHERE market_id IS NULL
-			LIMIT 50
-		`) as { condition_id: string }[];
+	return { summary, attemptedConditionIds: uniqueConditionIds };
+}
 
-		if (tradesWithoutMarket.length > 0) {
-			const backfillConditionIds = tradesWithoutMarket.map((t) => t.condition_id);
-			const backfillMarketIds = await syncMarketsForConditionIds(backfillConditionIds);
+async function handleIngest(): Promise<NextResponse> {
+	const startedAt = Date.now();
 
-			// Update trades with the newly synced market IDs
-			for (const [conditionId, marketId] of backfillMarketIds) {
-				await sql`
-					UPDATE trades
-					SET market_id = ${marketId}
-					WHERE condition_id = ${conditionId} AND market_id IS NULL
-				`;
-			}
-		}
+	try {
+		const { summary, attemptedConditionIds } = await runIngest();
 
-		// Backfill tags for existing markets that have empty tags (re-fetch from CLOB API)
-		const marketsWithEmptyTags = (await sql`
-			SELECT condition_id FROM markets
-			WHERE tags IS NULL OR tags = '[]'::jsonb OR jsonb_array_length(tags) = 0
-			LIMIT 30
-		`) as { condition_id: string }[];
-
-		let tagsBackfilled = 0;
-		for (const market of marketsWithEmptyTags) {
+		// Self-heal orphans left by earlier runs. A failure here must not fail the
+		// ingest that just committed its rows.
+		if (Date.now() - startedAt < ORPHAN_REPAIR_START_BUDGET_MS) {
 			try {
-				const marketData = await fetchMarketByConditionId(market.condition_id);
-				if (!marketData || marketData.tags.length === 0) continue;
-
-				await sql`
-					UPDATE markets
-					SET tags = ${JSON.stringify(marketData.tags)}::jsonb, last_synced_at = ${new Date()}
-					WHERE condition_id = ${market.condition_id}
-				`;
-				tagsBackfilled++;
+				summary.orphansLinked = await repairOrphanedTrades(attemptedConditionIds);
 			} catch (error) {
-				console.error(`Failed to backfill tags for ${market.condition_id}:`, error);
+				console.error('[ingest] orphan repair failed:', error);
 			}
 		}
 
-		console.log(`[ingest] Done: fetched=${trades.length}, new=${newTrades.length}, backfilled=${tradesWithoutMarket.length}, tagsBackfilled=${tagsBackfilled}`);
-
-		return NextResponse.json({
-			fetched: trades.length,
-			new: newTrades.length,
-			backfilled: tradesWithoutMarket.length,
-			tagsBackfilled,
-		});
+		console.log(
+			`[ingest] Done: fetched=${summary.fetched}, new=${summary.new}, skippedBelowThreshold=${summary.skippedBelowThreshold}, insertFailures=${summary.insertFailures}, orphansLinked=${summary.orphansLinked}`,
+		);
+		return NextResponse.json(summary);
 	} catch (error) {
 		console.error('Ingestion error:', error);
 		return NextResponse.json({ error: 'Failed to ingest trades' }, { status: 500 });
 	}
+}
+
+// Vercel Cron issues GET and authenticates with `Authorization: Bearer $CRON_SECRET`.
+export async function GET(request: NextRequest) {
+	if (!isAuthorizedCron(request)) {
+		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
+	return handleIngest();
+}
+
+// The dashboard Refresh button.
+export async function POST() {
+	// Defense in depth: the proxy middleware treats this route as public so cron
+	// can reach GET, which makes this session check the only gate on POST.
+	const { userId } = await auth();
+	if (!userId) {
+		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
+	return handleIngest();
 }
