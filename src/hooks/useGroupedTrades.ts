@@ -13,10 +13,7 @@ export interface GroupedTradesFilters {
 	timeWindowHours: number;
 }
 
-async function fetchGroupedTrades(
-	filters: GroupedTradesFilters,
-	limit: number,
-): Promise<GroupedTradesResponse> {
+async function fetchGroupedTrades(filters: GroupedTradesFilters, limit: number): Promise<GroupedTradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
 	params.set('timeWindowHours', String(filters.timeWindowHours));

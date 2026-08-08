@@ -5,17 +5,19 @@ import { POLYMARKET_DATA_API_URL, POLYMARKET_CLOB_API_URL, WHALE_THRESHOLD_DEFAU
 const tradesResponseSchema = z.array(polymarketTradeSchema);
 
 // Schema for Polymarket CLOB API market response
-const clobMarketSchema = z.object({
-	condition_id: z.string(),
-	market_slug: z.string().optional(),
-	question: z.string().optional(),
-	description: z.string().optional(),
-	icon: z.string().optional(),
-	tags: z.array(z.string()).default([]),
-	active: z.boolean().optional(),
-	closed: z.boolean().optional(),
-	end_date_iso: z.string().optional(),
-}).passthrough();
+const clobMarketSchema = z
+	.object({
+		condition_id: z.string(),
+		market_slug: z.string().optional(),
+		question: z.string().optional(),
+		description: z.string().optional(),
+		icon: z.string().optional(),
+		tags: z.array(z.string()).default([]),
+		active: z.boolean().optional(),
+		closed: z.boolean().optional(),
+		end_date_iso: z.string().optional(),
+	})
+	.passthrough();
 
 export type ClobMarket = z.infer<typeof clobMarketSchema>;
 
@@ -38,10 +40,10 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
 				throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
 			}
 
-			await new Promise(r => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+			await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
 		} catch (error) {
 			if (attempt === MAX_ATTEMPTS - 1) throw error;
-			await new Promise(r => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+			await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
 		}
 	}
 	throw new Error('fetchWithRetry: exhausted attempts');

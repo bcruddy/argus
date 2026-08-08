@@ -57,7 +57,11 @@ function formatTimestamp(timestamp: string): string {
 
 function formatTimestampShort(timestamp: string): string {
 	const date = new Date(timestamp);
-	return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+	return (
+		date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+		' ' +
+		date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+	);
 }
 
 function SortIcon({ field, currentSort, currentOrder }: { field: string; currentSort: string; currentOrder: string }) {
@@ -91,7 +95,9 @@ function TradeCard({ trade }: { trade: FollowingTrade }) {
 				<div className="flex justify-between items-start mb-2">
 					<div className="flex-1 min-w-0 mr-2">
 						<p className="text-sm font-medium truncate" title={trade.title || trade.condition_id}>
-							{trade.title || <span className="text-muted-foreground italic">{trade.condition_id.slice(0, 16)}...</span>}
+							{trade.title || (
+								<span className="text-muted-foreground italic">{trade.condition_id.slice(0, 16)}...</span>
+							)}
 						</p>
 						<p className="text-xs text-muted-foreground">{formatTimestampShort(trade.trade_timestamp)}</p>
 					</div>

@@ -12,16 +12,18 @@ Argus uses [db-migrate](https://db-migrate.readthedocs.io/) with the PostgreSQL 
 
 The following environment variable must be configured:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | Neon PostgreSQL connection string |
+| Variable       | Required | Description                       |
+| -------------- | -------- | --------------------------------- |
+| `DATABASE_URL` | Yes      | Neon PostgreSQL connection string |
 
 **Connection String Format:**
+
 ```
 postgresql://[user]:[password]@[host].neon.tech/[database]?sslmode=require
 ```
 
 Example:
+
 ```
 postgresql://argus_owner:abc123xyz@ep-cool-darkness-123456.us-east-2.aws.neon.tech/argus?sslmode=require
 ```
@@ -36,6 +38,7 @@ The migration tooling requires these packages (already in `devDependencies`):
 ### 3. Network Access
 
 The Claude web environment must be able to reach:
+
 - `*.neon.tech` on port 5432 (PostgreSQL)
 - SSL/TLS connections are required
 
@@ -54,11 +57,13 @@ This installs all project dependencies including the migration tools.
 Set the `DATABASE_URL` environment variable with your Neon connection string.
 
 **Option A: Export in terminal**
+
 ```bash
 export DATABASE_URL="postgresql://user:password@host.neon.tech/database?sslmode=require"
 ```
 
 **Option B: Create .env.local file**
+
 ```bash
 echo 'DATABASE_URL="postgresql://user:password@host.neon.tech/database?sslmode=require"' > .env.local
 ```
@@ -101,22 +106,23 @@ migrations/
 
 ```json
 {
-  "dev": {
-    "driver": "pg",
-    "connectionString": { "ENV": "DATABASE_URL" },
-    "ssl": { "rejectUnauthorized": false }
-  },
-  "production": {
-    "driver": "pg",
-    "connectionString": { "ENV": "DATABASE_URL" },
-    "ssl": { "rejectUnauthorized": false }
-  },
-  "sql-file": true,
-  "migrations-dir": "./migrations"
+	"dev": {
+		"driver": "pg",
+		"connectionString": { "ENV": "DATABASE_URL" },
+		"ssl": { "rejectUnauthorized": false }
+	},
+	"production": {
+		"driver": "pg",
+		"connectionString": { "ENV": "DATABASE_URL" },
+		"ssl": { "rejectUnauthorized": false }
+	},
+	"sql-file": true,
+	"migrations-dir": "./migrations"
 }
 ```
 
 Key configuration notes:
+
 - Uses `DATABASE_URL` environment variable for connection
 - SSL enabled with `rejectUnauthorized: false` (required for Neon)
 - SQL files stored separately in `sqls/` directory
@@ -125,18 +131,18 @@ Key configuration notes:
 
 ### Available by Default
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Node.js 22 | Available | `/opt/node22/bin/node` |
-| pnpm | Available | `/opt/node22/bin/pnpm` |
-| npm | Available | `/opt/node22/bin/npm` |
+| Component          | Status    | Notes                       |
+| ------------------ | --------- | --------------------------- |
+| Node.js 22         | Available | `/opt/node22/bin/node`      |
+| pnpm               | Available | `/opt/node22/bin/pnpm`      |
+| npm                | Available | `/opt/node22/bin/npm`       |
 | Network (outbound) | Available | Can connect to Neon servers |
 
 ### Not Available by Default
 
-| Component | Resolution |
-|-----------|------------|
-| `DATABASE_URL` | Must be configured per session |
+| Component      | Resolution                      |
+| -------------- | ------------------------------- |
+| `DATABASE_URL` | Must be configured per session  |
 | `node_modules` | Run `pnpm install` each session |
 
 ### Recommended Session Start Hook
@@ -145,19 +151,19 @@ To automate setup, create a SessionStart hook in `.claude/settings.json`:
 
 ```json
 {
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "pnpm install --prefer-offline"
-          }
-        ]
-      }
-    ]
-  }
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "pnpm install --prefer-offline"
+					}
+				]
+			}
+		]
+	}
 }
 ```
 
@@ -206,6 +212,7 @@ pnpm db:create add-notifications-table
 ```
 
 This creates:
+
 - `migrations/<timestamp>-add-notifications-table.js`
 - `migrations/sqls/<timestamp>-add-notifications-table-up.sql`
 - `migrations/sqls/<timestamp>-add-notifications-table-down.sql`
@@ -216,14 +223,14 @@ Edit the SQL files to define your schema changes.
 
 The current migrations create these tables:
 
-| Table | Purpose |
-|-------|---------|
-| `users` | User accounts synced from Clerk |
-| `alert_channels` | Notification preferences (telegram, discord, webhook) |
-| `markets` | Polymarket market metadata |
-| `trades` | Trade history with whale detection flags |
-| `alerts` | Sent notification records |
-| `followed_wallets` | User wallet tracking |
+| Table              | Purpose                                               |
+| ------------------ | ----------------------------------------------------- |
+| `users`            | User accounts synced from Clerk                       |
+| `alert_channels`   | Notification preferences (telegram, discord, webhook) |
+| `markets`          | Polymarket market metadata                            |
+| `trades`           | Trade history with whale detection flags              |
+| `alerts`           | Sent notification records                             |
+| `followed_wallets` | User wallet tracking                                  |
 
 ## Quick Reference
 

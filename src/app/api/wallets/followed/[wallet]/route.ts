@@ -10,10 +10,7 @@ const ethereumAddressRegex = /^0x[a-fA-F0-9]{40}$/;
 const walletParamSchema = z.string().regex(ethereumAddressRegex, 'Invalid wallet address format');
 
 // DELETE /api/wallets/followed/[wallet] - Unfollow a wallet
-export async function DELETE(
-	_request: NextRequest,
-	{ params }: { params: Promise<{ wallet: string }> },
-) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ wallet: string }> }) {
 	try {
 		const { userId } = await auth();
 
@@ -48,10 +45,7 @@ export async function DELETE(
 }
 
 // PATCH /api/wallets/followed/[wallet] - Update wallet label
-export async function PATCH(
-	request: NextRequest,
-	{ params }: { params: Promise<{ wallet: string }> },
-) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ wallet: string }> }) {
 	try {
 		const { userId } = await auth();
 
