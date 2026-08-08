@@ -100,6 +100,14 @@ export interface GroupedTradesResponse {
 	};
 }
 
+// Backfill API query parameters (operator endpoint, keyset-paged over markets.condition_id)
+export const backfillQuerySchema = z.object({
+	limit: z.preprocess(nullToUndefined, z.coerce.number().int().min(1).max(100).default(50)),
+	cursor: z.string().max(255).optional().nullable(),
+});
+
+export type BackfillQuery = z.infer<typeof backfillQuerySchema>;
+
 // Sanitize string for LIKE queries - escapes special SQL LIKE characters
 export function sanitizeForLike(input: string): string {
 	return input.replace(/[%_\\]/g, '\\$&');
