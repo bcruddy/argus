@@ -1,8 +1,14 @@
 import { createHash } from 'crypto';
 import type { TradeGroup, TradeGroupType, GroupedTradesResponse } from '@/schemas/api';
 
-// Wire shape of a trade row as the Neon driver returns it: DECIMAL columns arrive
-// as strings, which is why size/price/usdc_value are parsed rather than used directly.
+// Grouping runs in JS over the entire result set, so the raw fetch is bounded to
+// keep serverless memory (and the JSON payload) finite. Lives here rather than in
+// the query module because it is the grouping strategy that forces the cap;
+// queryTradesForGrouping imports it, and responses report when it was hit.
+export const GROUPING_FETCH_CAP = 5000;
+
+// A trade row after the query module has coerced its DECIMAL columns — numerics
+// are real numbers by the time grouping sees them.
 export interface RawTrade {
 	id: string;
 	transaction_hash: string;
@@ -11,9 +17,9 @@ export interface RawTrade {
 	outcome: string | null;
 	proxy_wallet: string;
 	side: 'BUY' | 'SELL';
-	size: string;
-	price: string;
-	usdc_value: string;
+	size: number;
+	price: number;
+	usdc_value: number;
 	trade_timestamp: string;
 	title: string | null;
 	category: string | null;
@@ -51,18 +57,14 @@ function buildTradeGroup(wallet: string, trades: RawTrade[], timeBucket: string)
 	let totalWeightedPrice = 0;
 
 	for (const trade of trades) {
-		const usdcValue = parseFloat(trade.usdc_value);
-		const size = parseFloat(trade.size);
-		const price = parseFloat(trade.price);
-
-		totalValue += usdcValue;
-		totalWeightedPrice += price * usdcValue;
+		totalValue += trade.usdc_value;
+		totalWeightedPrice += trade.price * trade.usdc_value;
 
 		if (trade.side === 'BUY') {
-			netShares += size;
+			netShares += trade.size;
 			buyCount++;
 		} else {
-			netShares -= size;
+			netShares -= trade.size;
 			sellCount++;
 		}
 	}
@@ -112,9 +114,9 @@ function buildTradeGroup(wallet: string, trades: RawTrade[], timeBucket: string)
 			conditionId: t.condition_id,
 			outcome: t.outcome,
 			side: t.side,
-			size: parseFloat(t.size),
-			price: parseFloat(t.price),
-			usdcValue: parseFloat(t.usdc_value),
+			size: t.size,
+			price: t.price,
+			usdcValue: t.usdc_value,
 			tradeTimestamp: t.trade_timestamp,
 			title: t.title,
 		})),
@@ -161,14 +163,18 @@ export function buildGroupedTradesResponse(
 	timeWindowHours: number,
 	limit: number,
 ): GroupedTradesResponse {
-	// Apply limit
-	const limitedGroups = buildTradeGroups(trades).slice(0, limit);
+	// totalGroups counts everything the window produced; the slice is what ships.
+	const allGroups = buildTradeGroups(trades);
+	const limitedGroups = allGroups.slice(0, limit);
 	const totalTrades = limitedGroups.reduce((sum, g) => sum + g.summary.tradeCount, 0);
 
 	return {
 		groups: limitedGroups,
 		meta: {
-			totalGroups: limitedGroups.length,
+			totalGroups: allGroups.length,
+			returned: limitedGroups.length,
+			hasMore: allGroups.length > limitedGroups.length,
+			truncated: trades.length >= GROUPING_FETCH_CAP,
 			totalTrades,
 			timeWindowHours,
 		},

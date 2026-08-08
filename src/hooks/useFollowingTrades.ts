@@ -1,9 +1,15 @@
 'use client';
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import {
+	MAX_TRADES_OFFSET,
+	groupedTradesResponseSchema,
+	parseResponse,
+	tradesResponseSchema,
+	type GroupedTradesResponse,
+} from '@/schemas/api';
 import type { TradesFilters } from './useTradesFilters';
 import type { Trade } from './useTrades';
-import type { GroupedTradesResponse } from '@/schemas/api';
 
 // Extended Trade type with wallet label
 export interface FollowingTrade extends Trade {
@@ -35,7 +41,7 @@ async function fetchFollowingTrades(
 		if (res.status === 401) throw new Error('Unauthorized');
 		throw new Error('Failed to fetch following trades');
 	}
-	return res.json();
+	return parseResponse(tradesResponseSchema, await res.json(), '/api/trades/following');
 }
 
 function retryUnlessUnauthorized(failureCount: number, error: Error) {
@@ -59,7 +65,10 @@ export function useInfiniteFollowingTrades(filters: TradesFilters, pageSize: num
 		initialPageParam: 0,
 		getNextPageParam: (lastPage) => {
 			if (!lastPage.hasMore) return undefined;
-			return lastPage.offset + pageSize;
+			const nextOffset = lastPage.offset + pageSize;
+			// Same offset cap as /api/trades — see useInfiniteTrades.
+			if (nextOffset > MAX_TRADES_OFFSET) return undefined;
+			return nextOffset;
 		},
 		retry: retryUnlessUnauthorized,
 		enabled,
@@ -90,7 +99,7 @@ async function fetchGroupedFollowingTrades(
 		if (res.status === 401) throw new Error('Unauthorized');
 		throw new Error('Failed to fetch grouped following trades');
 	}
-	return res.json();
+	return parseResponse(groupedTradesResponseSchema, await res.json(), '/api/trades/following/grouped');
 }
 
 export function useGroupedFollowingTrades(

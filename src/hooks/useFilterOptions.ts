@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { filtersResponseSchema, parseResponse } from '@/schemas/api';
 
 export interface FilterOptions {
 	categories: string[];
@@ -9,7 +10,7 @@ export interface FilterOptions {
 async function fetchFilterOptions(): Promise<FilterOptions> {
 	const res = await fetch('/api/filters');
 	if (!res.ok) throw new Error('Failed to fetch filter options');
-	return res.json();
+	return parseResponse(filtersResponseSchema, await res.json(), '/api/filters');
 }
 
 export function useFilterOptions() {

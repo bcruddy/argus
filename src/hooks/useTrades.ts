@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { MAX_TRADES_OFFSET, parseResponse, tradesResponseSchema } from '@/schemas/api';
 import type { TradesFilters } from './useTradesFilters';
 
 export interface Trade {
@@ -40,7 +41,7 @@ async function fetchTrades(filters: TradesFilters, limit: number, offset: number
 
 	const res = await fetch(`/api/trades?${params}`);
 	if (!res.ok) throw new Error('Failed to fetch trades');
-	return res.json();
+	return parseResponse(tradesResponseSchema, await res.json(), '/api/trades');
 }
 
 export function useTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
@@ -58,7 +59,11 @@ export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20,
 		initialPageParam: 0,
 		getNextPageParam: (lastPage) => {
 			if (!lastPage.hasMore) return undefined;
-			return lastPage.offset + pageSize;
+			const nextOffset = lastPage.offset + pageSize;
+			// The API rejects offsets past its cap, so stop at the cap and render
+			// end-of-list instead of walking the user into a 400.
+			if (nextOffset > MAX_TRADES_OFFSET) return undefined;
+			return nextOffset;
 		},
 		enabled,
 	});
