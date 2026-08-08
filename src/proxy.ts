@@ -3,12 +3,15 @@ import { NextResponse } from 'next/server';
 
 // /api/backfill is "public" here because it self-protects with a CRON_SECRET
 // bearer token (src/lib/cronAuth.ts) — a session redirect would block cron.
+// /api/ingest is the same deal: GET is the Vercel cron entry point and checks
+// CRON_SECRET, POST is the dashboard Refresh and checks auth() in-handler.
 const isPublicRoute = createRouteMatcher([
 	'/sign-in(.*)',
 	'/sign-up(.*)',
 	'/api/webhooks(.*)',
 	'/api/health',
 	'/api/backfill',
+	'/api/ingest',
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

@@ -26,6 +26,10 @@ const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 
+// Tagged so the catch below can tell "the server said no and will keep saying
+// no" (404 on a resolved market) apart from a transport failure worth retrying.
+class NonRetryableHttpError extends Error {}
+
 async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		try {
@@ -36,13 +40,13 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
 
 			if (response.ok) return response;
 
-			if (!RETRYABLE_STATUSES.has(response.status) || attempt === MAX_ATTEMPTS - 1) {
-				throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
-			}
+			const message = `Polymarket API error: ${response.status} ${response.statusText}`;
+			if (!RETRYABLE_STATUSES.has(response.status)) throw new NonRetryableHttpError(message);
+			if (attempt === MAX_ATTEMPTS - 1) throw new Error(message);
 
 			await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
 		} catch (error) {
-			if (attempt === MAX_ATTEMPTS - 1) throw error;
+			if (error instanceof NonRetryableHttpError || attempt === MAX_ATTEMPTS - 1) throw error;
 			await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
 		}
 	}
