@@ -1,9 +1,14 @@
 'use client';
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
-import { MAX_TRADES_OFFSET, parseResponse, tradesResponseSchema } from '@/schemas/api';
+import { MAX_TRADES_OFFSET, tradesResponseSchema } from '@/schemas/api';
+import { fetchJson } from '@/lib/fetchJson';
 import { infiniteTradesQueryKey, tradesQueryKey } from '@/lib/queryKeys';
 import type { TradesFilters } from './useTradesFilters';
+
+// Which feed a fetch targets. The all/following endpoint pairs differ only in row
+// scope, so the fetchers take this parameter instead of existing twice.
+export type TradesScope = 'all' | 'following';
 
 export interface Trade {
 	id: string;
@@ -22,6 +27,9 @@ export interface Trade {
 	title: string | null;
 	category: string | null;
 	created_at: string;
+	// Non-null when the viewer follows the wallet. Both endpoints resolve it: the
+	// label join is keyed on the viewer, independent of the feed's row scope.
+	wallet_label: string | null;
 }
 
 export interface TradesResponse {
@@ -41,7 +49,17 @@ export function nextOffset(lastPage: { hasMore: boolean; offset: number }, pageS
 	return next;
 }
 
-async function fetchTrades(filters: TradesFilters, limit: number, offset: number = 0): Promise<TradesResponse> {
+const TRADES_ENDPOINT: Record<TradesScope, string> = {
+	all: '/api/trades',
+	following: '/api/trades/following',
+};
+
+export function fetchTrades(
+	scope: TradesScope,
+	filters: TradesFilters,
+	limit: number,
+	offset: number = 0,
+): Promise<TradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
 	params.set('offset', String(offset));
@@ -51,15 +69,13 @@ async function fetchTrades(filters: TradesFilters, limit: number, offset: number
 	if (filters.event) params.set('event', filters.event);
 	if (filters.minAmount) params.set('minAmount', String(filters.minAmount));
 
-	const res = await fetch(`/api/trades?${params}`);
-	if (!res.ok) throw new Error('Failed to fetch trades');
-	return parseResponse(tradesResponseSchema, await res.json(), '/api/trades');
+	return fetchJson(TRADES_ENDPOINT[scope], tradesResponseSchema, 'trades', params);
 }
 
 export function useTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
 	return useQuery({
 		queryKey: tradesQueryKey(filters, limit),
-		queryFn: () => fetchTrades(filters, limit),
+		queryFn: () => fetchTrades('all', filters, limit),
 		enabled,
 	});
 }
@@ -67,7 +83,7 @@ export function useTrades(filters: TradesFilters, limit: number = 50, enabled: b
 export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20, enabled: boolean = true) {
 	return useInfiniteQuery({
 		queryKey: infiniteTradesQueryKey(filters, pageSize),
-		queryFn: ({ pageParam = 0 }) => fetchTrades(filters, pageSize, pageParam),
+		queryFn: ({ pageParam = 0 }) => fetchTrades('all', filters, pageSize, pageParam),
 		initialPageParam: 0,
 		getNextPageParam: (lastPage) => nextOffset(lastPage, pageSize),
 		enabled,

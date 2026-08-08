@@ -13,8 +13,14 @@ export const MAX_TRADES_OFFSET = 10000;
 
 // Category is a raw Polymarket tag ("U.S. Politics", "Trump 2.0"), so no character
 // whitelist: it is a bind parameter, and a regex here only rejects legitimate tags
-// that /api/filters itself emits.
-const categoryField = z.string().max(100).optional().nullable();
+// that /api/filters itself emits. '' coerces to null ("no filter") — passed through,
+// it reaches SQL as `m.tags ? ''` and silently matches nothing.
+const categoryField = z
+	.string()
+	.max(100)
+	.optional()
+	.nullable()
+	.transform((val) => val || null);
 
 // Wallets are stored lowercase (followed_wallets) but ship mixed-case from
 // explorers, so normalize on the way in and compare with LOWER() in SQL.

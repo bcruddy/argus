@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { TradeGroup, TradeGroupType } from '@/schemas/api';
+import type { GroupedTradesResponse, TradeGroup, TradeGroupType } from '@/schemas/api';
 import {
 	ChevronDown,
 	ChevronRight,
@@ -340,12 +340,13 @@ function TradeGroupCard({ group }: { group: TradeGroup }) {
 interface GroupedTradesViewProps {
 	groups: TradeGroup[];
 	timeWindowHours: number;
-	totalTrades: number;
+	// Null only when the query errored and there is no data at all.
+	meta: GroupedTradesResponse['meta'] | null;
 }
 
 // No `isMobile` prop: the two layouts are a CSS breakpoint now, so this renders once
 // for both viewports and the grouped query is fetched once.
-export function GroupedTradesView({ groups, timeWindowHours, totalTrades }: GroupedTradesViewProps) {
+export function GroupedTradesView({ groups, timeWindowHours, meta }: GroupedTradesViewProps) {
 	if (groups.length === 0) {
 		return (
 			<div className="text-muted-foreground py-8 text-center text-sm">
@@ -354,10 +355,21 @@ export function GroupedTradesView({ groups, timeWindowHours, totalTrades }: Grou
 		);
 	}
 
+	// hasMore: the server built more groups than the limit slice returned. Say so
+	// rather than presenting the slice as the whole window.
+	const groupCount =
+		meta && meta.hasMore ? `${meta.returned} of ${meta.totalGroups} wallet groups` : `${groups.length} wallet groups`;
+
 	return (
 		<div>
+			{meta?.truncated && (
+				<p role="status" className="mb-4 rounded-md border border-yellow-600/40 bg-yellow-500/10 px-3 py-2 text-sm">
+					Heavy volume: only the most recent trades in this window were grouped, so wallets active earlier may be
+					missing. Narrow the time window for complete coverage.
+				</p>
+			)}
 			<div className="mb-4 text-sm text-muted-foreground">
-				{groups.length} wallet groups, {totalTrades} total trades in last {timeWindowHours}h
+				{groupCount}, {meta?.totalTrades ?? 0} total trades in last {timeWindowHours}h
 			</div>
 			{groups.map((group) => (
 				<TradeGroupCard key={group.id} group={group} />

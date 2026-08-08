@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 		}
 
 		const { timeWindowHours, limit } = parseResult.data;
-		const trades = await queryTradesForGrouping(parseResult.data, { kind: 'all' });
+		const trades = await queryTradesForGrouping(parseResult.data, { kind: 'all', viewerClerkId: userId });
 
 		return NextResponse.json(buildGroupedTradesResponse(trades, timeWindowHours, limit));
 	} catch (error) {

@@ -8,20 +8,60 @@ import { WHALE_THRESHOLD_DEFAULT } from '@/lib/constants';
 
 export const maxDuration = 60;
 
+// Trades whose market fetch failed at insert time keep market_id NULL and vanish
+// from every category-filtered view. One small chunk per run (the 15-minute poller
+// is the schedule) re-links them without an operator having to drive /api/backfill;
+// that endpoint remains the bulk tool.
+const ORPHAN_REPAIR_LIMIT = 5;
+// Repair is a bonus pass inside a 60s function: skip it when the main ingest
+// already ate this much of the budget (a slow Polymarket day), because one CLOB
+// fetch can burn ~48s worst case (3 attempts x 15s timeout + backoff).
+const ORPHAN_REPAIR_START_BUDGET_MS = 10_000;
+
 interface IngestSummary {
 	fetched: number;
 	new: number;
 	skippedBelowThreshold: number;
 	insertFailures: number;
+	orphansLinked: number;
 }
 
-async function runIngest(): Promise<IngestSummary> {
-	const summary: IngestSummary = { fetched: 0, new: 0, skippedBelowThreshold: 0, insertFailures: 0 };
+// Excludes condition ids the current run just tried (and failed) to sync —
+// retrying them seconds later only re-burns the time budget.
+async function repairOrphanedTrades(excludeConditionIds: string[]): Promise<number> {
+	const orphans = (await sql`
+		SELECT DISTINCT condition_id FROM trades
+		WHERE market_id IS NULL
+			AND NOT (condition_id = ANY(${excludeConditionIds}))
+		LIMIT ${ORPHAN_REPAIR_LIMIT}
+	`) as { condition_id: string }[];
+
+	if (orphans.length === 0) return 0;
+
+	const synced = await syncMarketsForConditionIds(orphans.map((o) => o.condition_id));
+
+	let linked = 0;
+	for (const [conditionId, marketId] of synced) {
+		const rows = (await sql`
+			UPDATE trades
+			SET market_id = ${marketId}
+			WHERE condition_id = ${conditionId} AND market_id IS NULL
+			RETURNING id
+		`) as { id: string }[];
+
+		linked += rows.length;
+	}
+
+	return linked;
+}
+
+async function runIngest(): Promise<{ summary: IngestSummary; attemptedConditionIds: string[] }> {
+	const summary: IngestSummary = { fetched: 0, new: 0, skippedBelowThreshold: 0, insertFailures: 0, orphansLinked: 0 };
 
 	const trades = await fetchWhaleTrades({ minAmount: WHALE_THRESHOLD_DEFAULT });
 	summary.fetched = trades.length;
 
-	if (trades.length === 0) return summary;
+	if (trades.length === 0) return { summary, attemptedConditionIds: [] };
 
 	const hashes = trades.map((t) => t.transactionHash);
 	const existing = (await sql`
@@ -42,7 +82,7 @@ async function runIngest(): Promise<IngestSummary> {
 		return true;
 	});
 
-	if (newTrades.length === 0) return summary;
+	if (newTrades.length === 0) return { summary, attemptedConditionIds: [] };
 
 	const uniqueConditionIds = [...new Set(newTrades.map((t) => t.conditionId))];
 	const conditionToMarketId = await syncMarketsForConditionIds(uniqueConditionIds);
@@ -99,14 +139,27 @@ async function runIngest(): Promise<IngestSummary> {
 		}
 	}
 
-	return summary;
+	return { summary, attemptedConditionIds: uniqueConditionIds };
 }
 
 async function handleIngest(): Promise<NextResponse> {
+	const startedAt = Date.now();
+
 	try {
-		const summary = await runIngest();
+		const { summary, attemptedConditionIds } = await runIngest();
+
+		// Self-heal orphans left by earlier runs. A failure here must not fail the
+		// ingest that just committed its rows.
+		if (Date.now() - startedAt < ORPHAN_REPAIR_START_BUDGET_MS) {
+			try {
+				summary.orphansLinked = await repairOrphanedTrades(attemptedConditionIds);
+			} catch (error) {
+				console.error('[ingest] orphan repair failed:', error);
+			}
+		}
+
 		console.log(
-			`[ingest] Done: fetched=${summary.fetched}, new=${summary.new}, skippedBelowThreshold=${summary.skippedBelowThreshold}, insertFailures=${summary.insertFailures}`,
+			`[ingest] Done: fetched=${summary.fetched}, new=${summary.new}, skippedBelowThreshold=${summary.skippedBelowThreshold}, insertFailures=${summary.insertFailures}, orphansLinked=${summary.orphansLinked}`,
 		);
 		return NextResponse.json(summary);
 	} catch (error) {

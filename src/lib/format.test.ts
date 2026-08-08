@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatNumber, formatPrice, formatTimestampShort, formatUsd, formatWallet, polygonscanTxUrl } from './format';
+import {
+	formatNumber,
+	formatPrice,
+	formatTimestamp,
+	formatTimestampShort,
+	formatUsd,
+	formatWallet,
+	polygonscanTxUrl,
+} from './format';
 
 // Every expectation below is pinned to en-US because the formatters hard-code that
 // locale — they must not drift with the runner's default locale.
@@ -27,22 +35,23 @@ describe('formatUsd', () => {
 });
 
 describe('formatPrice', () => {
-	// Phase 3 unified this on 2 decimals: GroupedTradesView used maximumFractionDigits 4
-	// while both pages used 2, so the same price rendered differently per view. If this
-	// test fails, the views have drifted apart again.
-	it('always shows exactly two decimals', () => {
+	// Prediction-market prices live in [0,1] and grouping.ts deliberately keeps four
+	// decimals of avgPrice, so the unified formatter must not collapse a $0.004
+	// longshot to $0.00. Whole-cent prices keep the familiar two-decimal shape.
+	it('shows at least two decimals', () => {
 		expect(formatPrice(0.5)).toBe('$0.50');
 		expect(formatPrice(1)).toBe('$1.00');
 		expect(formatPrice(0)).toBe('$0.00');
 	});
 
-	it('truncates a 4-decimal price to 2 (the unified precision)', () => {
-		expect(formatPrice(0.12345)).toBe('$0.12');
-		expect(formatPrice(0.9999)).toBe('$1.00');
+	it('keeps sub-cent precision up to four decimals', () => {
+		expect(formatPrice(0.004)).toBe('$0.004');
+		expect(formatPrice(0.1234)).toBe('$0.1234');
+		expect(formatPrice(0.9999)).toBe('$0.9999');
 	});
 
-	it('rounds sub-cent values up rather than to zero', () => {
-		expect(formatPrice(0.005)).toBe('$0.01');
+	it('rounds past four decimals instead of showing more', () => {
+		expect(formatPrice(0.00042)).toBe('$0.0004');
 	});
 });
 
@@ -89,6 +98,14 @@ describe('formatWallet', () => {
 	it('truncates at the 11-character boundary', () => {
 		expect(formatWallet('0x12345678')).toBe('0x12345678');
 		expect(formatWallet('0x123456789ab')).toBe('0x1234...89ab');
+	});
+});
+
+describe('formatTimestamp', () => {
+	// Locale is pinned to en-US so server and client agree on the shape; the timezone
+	// stays viewer-local, which is why the render sites carry suppressHydrationWarning.
+	it('renders the en-US "M/D/YYYY, HH:MM:SS AM/PM" shape regardless of runner locale', () => {
+		expect(formatTimestamp('2026-08-07T12:00:00.000Z')).toMatch(/^\d{1,2}\/\d{1,2}\/\d{4}, \d{1,2}:\d{2}:\d{2} [AP]M$/);
 	});
 });
 

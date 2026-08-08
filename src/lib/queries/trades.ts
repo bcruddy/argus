@@ -3,10 +3,13 @@ import { sanitizeForLike, type TradesQuery, type GroupedTradesQuery } from '@/sc
 import { GROUPING_FETCH_CAP, type RawTrade } from '@/lib/grouping';
 
 // The four trades endpoints differ only in whether rows are restricted to the
-// wallets a user follows. The Neon HTTP driver treats every interpolation as a
-// bind parameter (there is no fragment composition), so the scope is expressed as
-// a nullable clerk_id parameter that both the join and the filter read.
-export type TradeScope = { kind: 'all' } | { kind: 'following'; clerkId: string };
+// wallets a user follows. The viewer's labels join independently of that
+// restriction — `viewerClerkId` on the 'all' scope is what lets / show "Whale #1"
+// on a followed wallet without narrowing the feed to followed rows. The Neon HTTP
+// driver treats every interpolation as a bind parameter (there is no fragment
+// composition), so both are expressed as nullable clerk_id parameters: one the
+// label join reads, one the row filter reads.
+export type TradeScope = { kind: 'all'; viewerClerkId: string | null } | { kind: 'following'; clerkId: string };
 
 // The row shape both trades endpoints return. `wallet_label` is null unless the
 // viewer follows the wallet; `category` is the matched tag when the request filtered
@@ -85,13 +88,20 @@ export interface TradesResult {
 	offset: number;
 }
 
-function clerkIdFor(scope: TradeScope): string | null {
+// Whose labels the followed_wallets join resolves — always the viewer.
+function labelClerkIdFor(scope: TradeScope): string | null {
+	return scope.kind === 'following' ? scope.clerkId : scope.viewerClerkId;
+}
+
+// Whether rows are restricted to followed wallets — only in the 'following' scope.
+function filterClerkIdFor(scope: TradeScope): string | null {
 	return scope.kind === 'following' ? scope.clerkId : null;
 }
 
 export async function queryTrades(params: TradesQuery, scope: TradeScope): Promise<TradesResult> {
 	const { limit, offset, sort, order, category, event, minAmount, wallet } = params;
-	const clerkId = clerkIdFor(scope);
+	const labelClerkId = labelClerkIdFor(scope);
+	const filterClerkId = filterClerkIdFor(scope);
 
 	// Sanitize event search for LIKE query (escape %, _, \)
 	const sanitizedEventPattern = event ? `%${sanitizeForLike(event)}%` : null;
@@ -116,9 +126,9 @@ export async function queryTrades(params: TradesQuery, scope: TradeScope): Promi
 			fw.label as wallet_label
 		FROM trades t
 		LEFT JOIN markets m ON t.market_id = m.id
-		LEFT JOIN followed_wallets fw ON LOWER(t.proxy_wallet) = fw.wallet_address AND fw.clerk_id = ${clerkId}
+		LEFT JOIN followed_wallets fw ON LOWER(t.proxy_wallet) = fw.wallet_address AND fw.clerk_id = ${labelClerkId}
 		WHERE t.is_whale = true
-			AND (${clerkId}::text IS NULL OR fw.id IS NOT NULL)
+			AND (${filterClerkId}::text IS NULL OR fw.id IS NOT NULL)
 			AND (${category}::text IS NULL OR m.tags ? ${category})
 			AND (${sanitizedEventPattern}::text IS NULL OR
 				LOWER(t.title) LIKE LOWER(${sanitizedEventPattern}) OR
@@ -148,7 +158,9 @@ export async function queryTrades(params: TradesQuery, scope: TradeScope): Promi
 
 export async function queryTradesForGrouping(params: GroupedTradesQuery, scope: TradeScope): Promise<RawTrade[]> {
 	const { category, event, minAmount, wallet, timeWindowHours } = params;
-	const clerkId = clerkIdFor(scope);
+	// No label column in this select, so the join exists only to apply the
+	// following restriction.
+	const filterClerkId = filterClerkIdFor(scope);
 
 	// Sanitize event search for LIKE query
 	const sanitizedEventPattern = event ? `%${sanitizeForLike(event)}%` : null;
@@ -177,9 +189,9 @@ export async function queryTradesForGrouping(params: GroupedTradesQuery, scope: 
 			date_trunc('day', t.trade_timestamp) as time_bucket
 		FROM trades t
 		LEFT JOIN markets m ON t.market_id = m.id
-		LEFT JOIN followed_wallets fw ON LOWER(t.proxy_wallet) = fw.wallet_address AND fw.clerk_id = ${clerkId}
+		LEFT JOIN followed_wallets fw ON LOWER(t.proxy_wallet) = fw.wallet_address AND fw.clerk_id = ${filterClerkId}
 		WHERE t.is_whale = true
-			AND (${clerkId}::text IS NULL OR fw.id IS NOT NULL)
+			AND (${filterClerkId}::text IS NULL OR fw.id IS NOT NULL)
 			AND t.trade_timestamp > ${cutoffTimestamp}
 			AND (${category}::text IS NULL OR m.tags ? ${category})
 			AND (${sanitizedEventPattern}::text IS NULL OR

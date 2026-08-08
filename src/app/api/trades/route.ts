@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
 			);
 		}
 
-		return NextResponse.json(await queryTrades(parseResult.data, { kind: 'all' }));
+		// viewerClerkId only resolves labels — the feed itself stays unrestricted.
+		return NextResponse.json(await queryTrades(parseResult.data, { kind: 'all', viewerClerkId: userId }));
 	} catch (error) {
 		console.error('Failed to fetch trades:', error);
 		return NextResponse.json({ error: 'Failed to fetch trades' }, { status: 500 });

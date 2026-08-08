@@ -142,8 +142,11 @@ describe('tradesQuerySchema', () => {
 			expect(tradesQuerySchema.safeParse(tradesParams(`category=${'a'.repeat(100)}`)).success).toBe(true);
 		});
 
-		it('passes an empty category through as an empty string', () => {
-			expect(tradesQuerySchema.parse(tradesParams('category=')).category).toBe('');
+		// '' used to reach SQL as `m.tags ? ''`, which matches no row — a silent-empty
+		// 200 indistinguishable from "no whale trades". Coerced to null so `?category=`
+		// means "no filter", the same effective behavior as `?event=`.
+		it('treats an empty category as no filter', () => {
+			expect(tradesQuerySchema.parse(tradesParams('category=')).category).toBeNull();
 		});
 	});
 
@@ -188,8 +191,9 @@ describe('tradesQuerySchema', () => {
 			expect(result.error?.issues[0]?.message).toBe('Invalid wallet address format');
 		});
 
-		// Asymmetry worth knowing about: `?category=` and `?event=` sail through as '',
-		// but `?wallet=` 400s, because the regex runs before the optional/nullable wrapper.
+		// Asymmetry worth knowing about: `?category=` coerces to null and `?event=` sails
+		// through as '' (the routes treat it as no filter), but `?wallet=` 400s, because
+		// the regex runs before the optional/nullable wrapper.
 		it('400s on an empty wallet param', () => {
 			expect(tradesQuerySchema.safeParse(tradesParams('wallet=')).success).toBe(false);
 		});

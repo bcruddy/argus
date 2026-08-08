@@ -1,8 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { groupedTradesResponseSchema, parseResponse } from '@/schemas/api';
+import { groupedTradesResponseSchema } from '@/schemas/api';
+import { fetchJson } from '@/lib/fetchJson';
 import type { TradesFilters } from './useTradesFilters';
+import type { TradesScope } from './useTrades';
 import type { TradeGroup, GroupedTradesResponse } from '@/schemas/api';
 
 export type { TradeGroup, GroupedTradesResponse };
@@ -14,7 +16,16 @@ export interface GroupedTradesFilters {
 	timeWindowHours: number;
 }
 
-async function fetchGroupedTrades(filters: GroupedTradesFilters, limit: number): Promise<GroupedTradesResponse> {
+const GROUPED_ENDPOINT: Record<TradesScope, string> = {
+	all: '/api/trades/grouped',
+	following: '/api/trades/following/grouped',
+};
+
+export function fetchGroupedTrades(
+	scope: TradesScope,
+	filters: GroupedTradesFilters,
+	limit: number,
+): Promise<GroupedTradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
 	params.set('timeWindowHours', String(filters.timeWindowHours));
@@ -22,9 +33,7 @@ async function fetchGroupedTrades(filters: GroupedTradesFilters, limit: number):
 	if (filters.event) params.set('event', filters.event);
 	if (filters.minAmount) params.set('minAmount', String(filters.minAmount));
 
-	const res = await fetch(`/api/trades/grouped?${params}`);
-	if (!res.ok) throw new Error('Failed to fetch grouped trades');
-	return parseResponse(groupedTradesResponseSchema, await res.json(), '/api/trades/grouped');
+	return fetchJson(GROUPED_ENDPOINT[scope], groupedTradesResponseSchema, 'grouped trades', params);
 }
 
 export function useGroupedTrades(
@@ -42,7 +51,7 @@ export function useGroupedTrades(
 
 	return useQuery({
 		queryKey: ['groupedTrades', groupedFilters, limit],
-		queryFn: () => fetchGroupedTrades(groupedFilters, limit),
+		queryFn: () => fetchGroupedTrades('all', groupedFilters, limit),
 		enabled,
 	});
 }

@@ -10,8 +10,10 @@ import { dehydrateDefaultTrades } from '@/lib/prefetchTrades';
 export default async function Home() {
 	// Unauthenticated visitors are redirected by the proxy middleware, so this is just
 	// belt and braces — and it keeps the page off the static-prerender path.
+	// viewerClerkId makes the prefetched rows carry the same wallet labels the
+	// client fetch would, so hydration doesn't briefly show unlabeled addresses.
 	const { userId } = await auth();
-	const state = userId ? await dehydrateDefaultTrades({ kind: 'all' }) : undefined;
+	const state = userId ? await dehydrateDefaultTrades({ kind: 'all', viewerClerkId: userId }) : undefined;
 
 	return (
 		<Suspense fallback={<div className="container mx-auto py-8 px-4 text-center">Loading...</div>}>

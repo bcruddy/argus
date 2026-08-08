@@ -7,6 +7,7 @@ import {
 	followedWalletsResponseSchema,
 	parseResponse,
 } from '@/schemas/api';
+import { fetchJson } from '@/lib/fetchJson';
 import type { FollowedWallet, FollowedWalletsResponse } from '@/schemas/api';
 
 export type { FollowedWallet, FollowedWalletsResponse };
@@ -20,15 +21,8 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 	return parsed.success ? parsed.data.error : fallback;
 }
 
-async function fetchFollowedWallets(): Promise<FollowedWalletsResponse> {
-	const res = await fetch('/api/wallets/followed');
-	if (!res.ok) {
-		if (res.status === 401) {
-			throw new Error('Unauthorized');
-		}
-		throw new Error('Failed to fetch followed wallets');
-	}
-	return parseResponse(followedWalletsResponseSchema, await res.json(), '/api/wallets/followed');
+function fetchFollowedWallets(): Promise<FollowedWalletsResponse> {
+	return fetchJson('/api/wallets/followed', followedWalletsResponseSchema, 'followed wallets');
 }
 
 async function followWallet(walletAddress: string, label?: string): Promise<{ wallet: FollowedWallet }> {

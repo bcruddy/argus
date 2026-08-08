@@ -12,13 +12,13 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 	maximumFractionDigits: 0,
 });
 
-// GroupedTradesView used maximumFractionDigits: 4 while both pages used 2, so the
-// same price rendered differently depending on the view. Unified on 2.
+// Prices live in [0,1] and grouping.ts keeps four decimals of avgPrice, so the
+// unified formatter allows four: capping at 2 rendered a $0.004 longshot as $0.00.
 const priceFormatter = new Intl.NumberFormat('en-US', {
 	style: 'currency',
 	currency: 'USD',
 	minimumFractionDigits: 2,
-	maximumFractionDigits: 2,
+	maximumFractionDigits: 4,
 });
 
 const numberFormatter = new Intl.NumberFormat('en-US', {
@@ -46,8 +46,11 @@ export function formatWallet(wallet: string, label?: string | null): string {
 	return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
 }
 
+// Locale pinned like every other formatter here; the timezone is deliberately the
+// viewer's, which differs from the SSR server's — any element rendering this from
+// prefetched data must carry suppressHydrationWarning.
 export function formatTimestamp(timestamp: string): string {
-	return new Date(timestamp).toLocaleString();
+	return new Date(timestamp).toLocaleString('en-US');
 }
 
 export function formatTimestampShort(timestamp: string): string {

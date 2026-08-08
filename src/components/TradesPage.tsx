@@ -13,7 +13,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useTradesFilters, type SortField } from '@/hooks/useTradesFilters';
-import { useTrades, useInfiniteTrades, Trade } from '@/hooks/useTrades';
+import { useTrades, useInfiniteTrades, type Trade, type TradesScope } from '@/hooks/useTrades';
 import { useFollowingTrades, useInfiniteFollowingTrades, useGroupedFollowingTrades } from '@/hooks/useFollowingTrades';
 import { useIntersectionObserver } from '@/hooks/useIntersectionObserver';
 import { useGroupedTrades } from '@/hooks/useGroupedTrades';
@@ -51,12 +51,9 @@ import {
 	ArrowLeft,
 } from 'lucide-react';
 
-export type TradesScope = 'all' | 'following';
+export type { TradesScope };
 
 type ViewMode = 'individual' | 'grouped';
-
-// /api/trades rows have no wallet label; /api/trades/following rows do.
-type DisplayTrade = Trade & { wallet_label?: string | null };
 
 const MEGA_TRADE_THRESHOLD = 1_000_000;
 
@@ -143,7 +140,7 @@ function FollowingLink({ followedCount }: { followedCount: number }) {
 	);
 }
 
-function TradeCard({ trade }: { trade: DisplayTrade }) {
+function TradeCard({ trade }: { trade: Trade }) {
 	return (
 		<Card className="mb-3">
 			<CardContent className="pt-4 pb-3 px-4">
@@ -241,8 +238,8 @@ export function TradesPage({ scope }: { scope: TradesScope }) {
 
 	// Desktop: single page of results. Mobile: infinite query.
 	const listTrades = listQuery.data?.trades;
-	const trades: DisplayTrade[] = listTrades || [];
-	const mobileTrades: DisplayTrade[] = infiniteQuery.data?.pages.flatMap((page) => page.trades) || [];
+	const trades: Trade[] = listTrades || [];
+	const mobileTrades: Trade[] = infiniteQuery.data?.pages.flatMap((page) => page.trades) || [];
 	const groupedData = groupedQuery.data;
 
 	const { hasNextPage, isFetchingNextPage, fetchNextPage } = infiniteQuery;
@@ -599,7 +596,7 @@ export function TradesPage({ scope }: { scope: TradesScope }) {
 								<GroupedTradesView
 									groups={groupedData?.groups || []}
 									timeWindowHours={timeWindowHours}
-									totalTrades={groupedData?.meta.totalTrades || 0}
+									meta={groupedData?.meta ?? null}
 								/>
 							)}
 						</>
@@ -660,7 +657,12 @@ export function TradesPage({ scope }: { scope: TradesScope }) {
 																	)}
 																</div>
 															</TableCell>
-															<TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+															{/* This cell is SSR'd from the prefetched page in the server's
+															    timezone; the client re-renders it viewer-local. */}
+															<TableCell
+																suppressHydrationWarning
+																className="text-muted-foreground text-sm whitespace-nowrap"
+															>
 																{formatTimestamp(trade.trade_timestamp)}
 															</TableCell>
 															<TableCell>
