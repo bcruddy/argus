@@ -39,19 +39,6 @@ async function unfollowWallet(walletAddress: string): Promise<void> {
 	}
 }
 
-async function updateWalletLabel(walletAddress: string, label: string | null): Promise<{ wallet: FollowedWallet }> {
-	const res = await fetch(`/api/wallets/followed/${walletAddress}`, {
-		method: 'PATCH',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ label }),
-	});
-	if (!res.ok) {
-		const error = await res.json().catch(() => ({ error: 'Failed to update wallet label' }));
-		throw new Error(error.error || 'Failed to update wallet label');
-	}
-	return res.json();
-}
-
 export function useFollowedWallets() {
 	return useQuery({
 		queryKey: ['followedWallets'],
@@ -85,23 +72,4 @@ export function useUnfollowWallet() {
 			queryClient.invalidateQueries({ queryKey: ['followedWallets'] });
 		},
 	});
-}
-
-export function useUpdateWalletLabel() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: ({ walletAddress, label }: { walletAddress: string; label: string | null }) =>
-			updateWalletLabel(walletAddress, label),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['followedWallets'] });
-		},
-	});
-}
-
-// Helper hook to check if a wallet is followed
-export function useIsWalletFollowed(walletAddress: string): boolean {
-	const { data } = useFollowedWallets();
-	if (!data?.wallets) return false;
-	return data.wallets.some((w) => w.walletAddress.toLowerCase() === walletAddress.toLowerCase());
 }

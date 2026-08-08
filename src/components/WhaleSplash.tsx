@@ -1,19 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatUsd } from '@/lib/format';
 
 interface WhaleSplashProps {
 	amount: number;
 	onDismiss: () => void;
-}
-
-function formatUsd(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 0,
-		maximumFractionDigits: 0,
-	}).format(value);
 }
 
 export function WhaleSplash({ amount, onDismiss }: WhaleSplashProps) {

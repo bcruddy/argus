@@ -43,14 +43,15 @@ async function fetchTrades(filters: TradesFilters, limit: number, offset: number
 	return res.json();
 }
 
-export function useTrades(filters: TradesFilters, limit: number = 50) {
+export function useTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
 	return useQuery({
 		queryKey: ['trades', filters, limit],
 		queryFn: () => fetchTrades(filters, limit),
+		enabled,
 	});
 }
 
-export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20) {
+export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20, enabled: boolean = true) {
 	return useInfiniteQuery({
 		queryKey: ['infiniteTrades', filters, pageSize],
 		queryFn: ({ pageParam = 0 }) => fetchTrades(filters, pageSize, pageParam),
@@ -59,5 +60,6 @@ export function useInfiniteTrades(filters: TradesFilters, pageSize: number = 20)
 			if (!lastPage.hasMore) return undefined;
 			return lastPage.offset + pageSize;
 		},
+		enabled,
 	});
 }

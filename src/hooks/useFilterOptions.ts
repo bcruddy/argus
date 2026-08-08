@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query';
 
 export interface FilterOptions {
 	categories: string[];
-	events: string[];
 }
 
 async function fetchFilterOptions(): Promise<FilterOptions> {

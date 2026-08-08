@@ -18,6 +18,14 @@ import {
 	ArrowDown,
 } from 'lucide-react';
 import { FollowWalletButton } from '@/components/FollowWalletButton';
+import {
+	formatUsd,
+	formatPrice,
+	formatNumber,
+	formatWallet,
+	formatTimestampShort,
+	polygonscanTxUrl,
+} from '@/lib/format';
 
 // Types for outcome aggregation
 interface OutcomePosition {
@@ -97,45 +105,6 @@ function aggregateByEventAndOutcome(group: TradeGroup): EventSummary[] {
 	return result;
 }
 
-function formatUsd(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 0,
-		maximumFractionDigits: 0,
-	}).format(value);
-}
-
-function formatPrice(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 4,
-	}).format(value);
-}
-
-function formatNumber(value: number): string {
-	return new Intl.NumberFormat('en-US', {
-		minimumFractionDigits: 0,
-		maximumFractionDigits: 0,
-	}).format(value);
-}
-
-function formatWallet(wallet: string): string {
-	if (wallet.length <= 10) return wallet;
-	return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
-}
-
-function formatTimestampShort(timestamp: string): string {
-	const date = new Date(timestamp);
-	return (
-		date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-		' ' +
-		date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-	);
-}
-
 function getGroupTypeConfig(groupType: TradeGroupType): {
 	label: string;
 	variant: 'default' | 'secondary' | 'destructive' | 'outline';
@@ -203,7 +172,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 				{/* Header: Wallet + Group Type + Toggle */}
 				<div className="flex items-center justify-between mb-3">
 					<div className="flex items-center gap-2">
-						<FollowWalletButton walletAddress={group.wallet} variant="icon" />
+						<FollowWalletButton walletAddress={group.wallet} />
 						<span className="font-mono text-sm">{formatWallet(group.wallet)}</span>
 						<Badge variant={groupConfig.variant} className="flex items-center gap-1">
 							{groupConfig.icon}
@@ -338,7 +307,7 @@ function TradeGroupCard({ group, isMobile }: { group: TradeGroup; isMobile: bool
 											</TableCell>
 											<TableCell>
 												<a
-													href={`https://polygonscan.com/tx/${trade.transactionHash}`}
+													href={polygonscanTxUrl(trade.transactionHash)}
 													target="_blank"
 													rel="noopener noreferrer"
 													className="text-primary hover:underline text-xs flex items-center gap-1"

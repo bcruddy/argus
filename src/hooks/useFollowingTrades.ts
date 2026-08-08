@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import type { TradesFilters } from './useTradesFilters';
 import type { Trade } from './useTrades';
 import type { GroupedTradesResponse } from '@/schemas/api';
@@ -12,11 +12,18 @@ export interface FollowingTrade extends Trade {
 
 export interface FollowingTradesResponse {
 	trades: FollowingTrade[];
+	hasMore: boolean;
+	offset: number;
 }
 
-async function fetchFollowingTrades(filters: TradesFilters, limit: number): Promise<FollowingTradesResponse> {
+async function fetchFollowingTrades(
+	filters: TradesFilters,
+	limit: number,
+	offset: number = 0,
+): Promise<FollowingTradesResponse> {
 	const params = new URLSearchParams();
 	params.set('limit', String(limit));
+	params.set('offset', String(offset));
 	if (filters.sort !== 'time') params.set('sort', filters.sort);
 	if (filters.order !== 'desc') params.set('order', filters.order);
 	if (filters.category) params.set('category', filters.category);
@@ -31,14 +38,31 @@ async function fetchFollowingTrades(filters: TradesFilters, limit: number): Prom
 	return res.json();
 }
 
-export function useFollowingTrades(filters: TradesFilters, limit: number = 50) {
+function retryUnlessUnauthorized(failureCount: number, error: Error) {
+	if (error.message === 'Unauthorized') return false;
+	return failureCount < 3;
+}
+
+export function useFollowingTrades(filters: TradesFilters, limit: number = 50, enabled: boolean = true) {
 	return useQuery({
 		queryKey: ['followingTrades', filters, limit],
 		queryFn: () => fetchFollowingTrades(filters, limit),
-		retry: (failureCount, error) => {
-			if (error.message === 'Unauthorized') return false;
-			return failureCount < 3;
+		retry: retryUnlessUnauthorized,
+		enabled,
+	});
+}
+
+export function useInfiniteFollowingTrades(filters: TradesFilters, pageSize: number = 20, enabled: boolean = true) {
+	return useInfiniteQuery({
+		queryKey: ['infiniteFollowingTrades', filters, pageSize],
+		queryFn: ({ pageParam = 0 }) => fetchFollowingTrades(filters, pageSize, pageParam),
+		initialPageParam: 0,
+		getNextPageParam: (lastPage) => {
+			if (!lastPage.hasMore) return undefined;
+			return lastPage.offset + pageSize;
 		},
+		retry: retryUnlessUnauthorized,
+		enabled,
 	});
 }
 
@@ -69,7 +93,12 @@ async function fetchGroupedFollowingTrades(
 	return res.json();
 }
 
-export function useGroupedFollowingTrades(filters: TradesFilters, timeWindowHours: number, limit: number = 50) {
+export function useGroupedFollowingTrades(
+	filters: TradesFilters,
+	timeWindowHours: number,
+	limit: number = 50,
+	enabled: boolean = true,
+) {
 	const groupedFilters: GroupedFollowingFilters = {
 		category: filters.category,
 		event: filters.event,
@@ -80,9 +109,7 @@ export function useGroupedFollowingTrades(filters: TradesFilters, timeWindowHour
 	return useQuery({
 		queryKey: ['groupedFollowingTrades', groupedFilters, limit],
 		queryFn: () => fetchGroupedFollowingTrades(groupedFilters, limit),
-		retry: (failureCount, error) => {
-			if (error.message === 'Unauthorized') return false;
-			return failureCount < 3;
-		},
+		retry: retryUnlessUnauthorized,
+		enabled,
 	});
 }

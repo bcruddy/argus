@@ -26,7 +26,12 @@ async function fetchGroupedTrades(filters: GroupedTradesFilters, limit: number):
 	return res.json();
 }
 
-export function useGroupedTrades(filters: TradesFilters, timeWindowHours: number, limit: number = 50) {
+export function useGroupedTrades(
+	filters: TradesFilters,
+	timeWindowHours: number,
+	limit: number = 50,
+	enabled: boolean = true,
+) {
 	const groupedFilters: GroupedTradesFilters = {
 		category: filters.category,
 		event: filters.event,
@@ -37,5 +42,6 @@ export function useGroupedTrades(filters: TradesFilters, timeWindowHours: number
 	return useQuery({
 		queryKey: ['groupedTrades', groupedFilters, limit],
 		queryFn: () => fetchGroupedTrades(groupedFilters, limit),
+		enabled,
 	});
 }
