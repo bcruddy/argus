@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { followedWalletsResponseSchema, parseResponse } from '@/schemas/api';
 import type { FollowedWallet, FollowedWalletsResponse } from '@/schemas/api';
 
 export type { FollowedWallet, FollowedWalletsResponse };
@@ -13,7 +14,7 @@ async function fetchFollowedWallets(): Promise<FollowedWalletsResponse> {
 		}
 		throw new Error('Failed to fetch followed wallets');
 	}
-	return res.json();
+	return parseResponse(followedWalletsResponseSchema, await res.json(), '/api/wallets/followed');
 }
 
 async function followWallet(walletAddress: string, label?: string): Promise<{ wallet: FollowedWallet }> {
