@@ -82,3 +82,10 @@ and coding agents. `docs/disco.md` has the Polymarket API research — rate limi
 
 Deployed on Vercel. CI (lint, typecheck, format) runs via GitHub Actions on PRs. Migrations are run
 manually against Neon — never automatically at deploy time.
+
+Ingestion scheduling is split because Vercel Hobby caps crons at daily:
+
+- `vercel.json` — daily backstop cron (bypasses Vercel deployment protection natively)
+- `.github/workflows/ingest.yml` — the real poller, every 15 min, authenticating with the
+  `CRON_SECRET` repo secret plus `VERCEL_AUTOMATION_BYPASS_SECRET` (the prod domain sits behind
+  Vercel SSO deployment protection). A red X on that workflow = ingestion is down.
